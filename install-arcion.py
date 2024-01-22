@@ -1,7 +1,7 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # Install Arcion
-# MAGIC - Recommend unrestriced, single node
+# MAGIC - unrestriced, single node cluster
 # MAGIC - 4 cores, 16GB of RAM sufficent for testing and demo
 
 # COMMAND ----------
@@ -18,7 +18,7 @@
 # MAGIC %sh
 # MAGIC # download and unzip arcion
 # MAGIC if [ ! -f /opt/stage/arcion/replicant-cli/bin/replicant ]; then
-# MAGIC   mkdir -p /opt/stage/arcion
+# MAGIC   sudo mkdir -p /opt/stage/arcion; chown $(whoami):$(whoami) /opt/stage/arcion
 # MAGIC   cd /opt/stage/arcion && curl -O --location https://arcion-releases.s3.us-west-1.amazonaws.com/general/replicant/replicant-cli-23.09.29.11.zip
 # MAGIC   unzip -q replicant-cli-*.zip
 # MAGIC   rm replicant-cli-*.zip

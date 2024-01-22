@@ -1,6 +1,6 @@
 # Databricks notebook source
 # MAGIC %sh
-# MAGIC mkdir -p /opt/stage/libs
+# MAGIC sudo mkdir -p /opt/stage/libs && chown $(logname):$(logname) /opt/stage/libs
 # MAGIC # deltalake
 # MAGIC if [ ! -f /opt/stage/libs/SparkJDBC42.jar ]; then
 # MAGIC     pushd /opt/stage/libs >/dev/null
