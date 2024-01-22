@@ -124,6 +124,7 @@
 
 # COMMAND ----------
 
+from databricks.sdk.runtime import *
 print (f"""
 type: DATABRICKS_DELTALAKE
 url: 'jdbc:spark://{dbutils.widgets.get('HOSTNAME')}:443/default;transportMode=http;ssl=1;httpPath={dbutils.widgets.get('HTTP_PATH')};AuthMech=3;UID=token'

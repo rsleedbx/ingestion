@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+
 sudo mkdir -p /opt/stage/libs && chown $(logname):$(logname) /opt/stage/libs
 # deltalake
 if [ ! -f /opt/stage/libs/SparkJDBC42.jar ]; then
