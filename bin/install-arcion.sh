@@ -7,6 +7,10 @@ if [ ! -f /opt/stage/arcion/replicant-cli/bin/replicant ]; then
     rm replicant-cli-*.zip
 fi
 
-cp -v /opt/stage/libs/*.jar /opt/stage/ycsb/ycsb-jdbc-binding-0.18.0-SNAPSHOT/lib/.
+# copy the jar and jdbc
+for inst in $(find . -name "replicant" -o -name "replicate"); do
+  echo $inst 
+  dir=$(dirname $(dirname $inst))
+  cp -v /opt/stage/libs/*.jar ${dir}/lib
+done 
 
-/opt/stage/arcion/replicant-cli/bin/replicant version

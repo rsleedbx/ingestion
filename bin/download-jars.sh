@@ -36,6 +36,16 @@ else
     echo "postgres  /opt/stage/libs/postgresql-42.7.1.jar found"
 fi
 
+# download oracle jdbc if not there
+if [ ! -f /opt/stage/libs/ojdbc8.jar ]; then
+    pushd /opt/stage/libs >/dev/null
+    curl -O --location https://download.oracle.com/otn-pub/otn_software/jdbc/1815/ojdbc8.jar
+    popd >/dev/null
+    echo "oracle /opt/stage/libs/ojdbc8.jar downloaded"
+else
+    echo "oracle /opt/stage/libs/ojdbc8.jar found"
+fi
+
 # download log4j
 if [ ! -f /opt/stage/libs/log4j-1.2.17.jar ]; then
     pushd /opt/stage/libs >/dev/null
