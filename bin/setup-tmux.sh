@@ -1,5 +1,7 @@
 #!/usr/env/bin bash
 
+orarac_tmux() {
+
 WIN=${1:-orarac}
 
 exists=$( tmux ls | grep "^${WIN}" )
@@ -35,3 +37,4 @@ else
     echo "tmux session ready. session already exists"
 fi
 tmux attach-session -t $WIN
+}
