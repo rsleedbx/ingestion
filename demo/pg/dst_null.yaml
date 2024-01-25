@@ -1,0 +1,4 @@
+
+type: NULLSTORAGE
+storage-location: /opt/stage/demo/pg/temp # schema and YAML files are written here
+

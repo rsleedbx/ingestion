@@ -1,43 +1,63 @@
 #!/usr/bin/env bash
 
-CLASSPATH=$(find /opt/stage/libs -name "*.jar" ! -name "log" | paste -s -d":")    
-
+export CLASSPATH=$(find /opt/stage/libs -name "*.jar" ! -name "log" | paste -s -d":")    
+export PATH=/opt/stage/bin/jsqsh-dist-3.0-SNAPSHOT/bin:$PATH
 jsqsh cdbrac <<EOF
 -- 
-CREATE USER c##arcsrc IDENTIFIED BY Passw0rd;
+CREATE USER c##arcsrc IDENTIFIED BY Passw0rd CONTAINER=ALL;
+GRANT CREATE SESSION TO c##arcsrc CONTAINER=ALL;
+grant connect,resource to c##arcsrc container=all;
+
+CREATE USER c##ycsb IDENTIFIED BY Passw0rd CONTAINER=ALL;
+GRANT CREATE SESSION TO c##ycsb CONTAINER=ALL;
+grant connect,resource to c##ycsb container=all;
+ALTER USER c##ycsb default tablespace USERS;
+ALTER USER c##ycsb quota unlimited on USERS;
+GRANT
+    SELECT ANY TABLE,
+    INSERT ANY TABLE,
+    UPDATE ANY TABLE,
+    DELETE ANY TABLE,
+    CREATE ANY TABLE,
+    ALTER ANY TABLE,
+    DROP ANY TABLE
+    TO c##ycsb;
+    GRANT
+    CREATE ANY SEQUENCE,
+    SELECT ANY SEQUENCE,
+    CREATE ANY INDEX
+    TO C##ycsb;
+GRANT SET CONTAINER TO  C##ycsb CONTAINER=ALL;
+
+-- not sure if required
+-- grant select any dictionary to c##arcsrc container=all;
 
 ALTER USER c##arcsrc default tablespace USERS;
 
 ALTER USER c##arcsrc quota unlimited on USERS;
-
-GRANT CREATE SESSION TO c##arcsrc;
 -- 
-grant connect,resource to c##arcsrc;
 
 grant execute_catalog_role to c##arcsrc;
 
 grant select_catalog_role to c##arcsrc;
 
 --
-grant dba to c##arcsrc;
+grant dba to c##arcsrc contailer=all;
 
 --
 ALTER DATABASE FORCE LOGGING;
 
 ALTER DATABASE ADD SUPPLEMENTAL LOG DATA (ALL) COLUMNS;
 
-EOF
-
-
 -- II. Set up Oracle User
 
-CREATE USER C##ARCSRC IDENTIFIED BY Passw0rd;
+CREATE USER C##ARCSRC IDENTIFIED BY Passw0rd  CONTAINER=ALL;
+
+GRANT CREATE SESSION TO C##ARCSRC CONTAINER=ALL;
 
 ALTER USER C##ARCSRC default tablespace USERS;
 
 ALTER USER C##ARCSRC quota unlimited on USERS;
-
-GRANT CREATE SESSION TO C##ARCSRC;
 
 GRANT
     SELECT ANY TABLE,
@@ -165,7 +185,10 @@ GRANT SELECT ON v_\$transportable_platform TO C##ARCSRC;
 
 -- for exp / imp
 -- 
-grant read,write on directory SHARED_STAGE to C##ARCSRC;
+--grant read,write on directory SHARED_STAGE to C##ARCSRC;
+
+
+EOF
 
 
 jsqsh -n arcsrc <<EOF
@@ -190,6 +213,7 @@ ssh oracle@ol7-19-rac1 ". ~/.bash_profile; srvctl status service -db cdbrac"
 
 
 # setup cdb
+
 srvctl add service -db cdbrac -service cdb_svc -preferred cdbrac1 -available cdbrac2 -failovermethod BASIC -failovertype SELECT -failoverretry 180 -failoverdelay 5
 srvctl start service -db cdbrac -service cdb_svc -instance cdbrac1
 srvctl relocate service -db cdbrac -service cdb_svc -oldinst cdbrac1 -newinst cdbrac2 -stopoption immediate -f

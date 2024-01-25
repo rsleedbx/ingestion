@@ -1,0 +1,34 @@
+schemas:
+- schema: C##ARCSRC
+  tables:
+  - columns:
+    - name: YCSB_KEY
+      not-null: true
+      type: NUMBER
+    - name: FIELD0
+      type: VARCHAR2(255)
+    - name: FIELD1
+      type: VARCHAR2(255)
+    - name: FIELD2
+      type: VARCHAR2(255)
+    - name: FIELD3
+      type: VARCHAR2(255)
+    - name: FIELD4
+      type: VARCHAR2(255)
+    - name: FIELD5
+      type: VARCHAR2(255)
+    - name: FIELD6
+      type: VARCHAR2(255)
+    - name: FIELD7
+      type: VARCHAR2(255)
+    - name: FIELD8
+      type: VARCHAR2(255)
+    - name: FIELD9
+      type: VARCHAR2(255)
+    name: USERTABLE
+    object-type: TABLE
+    primary-key:
+      columns:
+      - YCSB_KEY
+      name: SYS_IOT_TOP_73380
+user-roles: {}

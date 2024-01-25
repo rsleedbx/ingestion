@@ -1,0 +1,16 @@
+type: ORACLE
+
+host: 'ol7-19-scan'
+port: '1521'
+
+# SID and not service name
+service-name: 'cdb_svc'
+
+username: 'c##arcsrc'
+password: 'Passw0rd'
+
+max-connections: 5
+
+max-retries: 1
+retry-wait-duration-ms: 1000
+continuous-log-mining: false     
