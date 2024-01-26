@@ -8,29 +8,10 @@ CREATE USER c##arcsrc IDENTIFIED BY Passw0rd CONTAINER=ALL;
 GRANT CREATE SESSION TO c##arcsrc CONTAINER=ALL;
 grant connect,resource to c##arcsrc container=all;
 
-CREATE USER c##ycsb IDENTIFIED BY Passw0rd CONTAINER=ALL;
-GRANT CREATE SESSION TO c##ycsb CONTAINER=ALL;
-grant connect,resource to c##ycsb container=all;
-ALTER USER c##ycsb default tablespace USERS;
-ALTER USER c##ycsb quota unlimited on USERS;
-GRANT
-    SELECT ANY TABLE,
-    INSERT ANY TABLE,
-    UPDATE ANY TABLE,
-    DELETE ANY TABLE,
-    CREATE ANY TABLE,
-    ALTER ANY TABLE,
-    DROP ANY TABLE
-    TO c##ycsb;
-    GRANT
-    CREATE ANY SEQUENCE,
-    SELECT ANY SEQUENCE,
-    CREATE ANY INDEX
-    TO C##ycsb;
-GRANT SET CONTAINER TO  C##ycsb CONTAINER=ALL;
 
 -- not sure if required
 -- grant select any dictionary to c##arcsrc container=all;
+-- grant all on DBMS_LOGMNR_D to c##arcsrc container=all;
 
 ALTER USER c##arcsrc default tablespace USERS;
 
@@ -202,6 +183,17 @@ CREATE TABLE usertable (
 ) organization index; 
 EOF
 
+jsqsh -n arcsrcpdb1 <<EOF
+CREATE TABLE usertable (
+    YCSB_KEY NUMBER PRIMARY KEY,
+    FIELD0 VARCHAR2(255), FIELD1 VARCHAR2(255),
+    FIELD2 VARCHAR2(255), FIELD3 VARCHAR2(255),
+    FIELD4 VARCHAR2(255), FIELD5 VARCHAR2(255),
+    FIELD6 VARCHAR2(255), FIELD7 VARCHAR2(255),
+    FIELD8 VARCHAR2(255), FIELD9 VARCHAR2(255)
+) organization index; 
+EOF
+
 
 ssh-copy-id oracle@ol7-19-rac1
 ssh-copy-id oracle@ol7-19-rac2
@@ -220,6 +212,13 @@ srvctl relocate service -db cdbrac -service cdb_svc -oldinst cdbrac1 -newinst cd
 srvctl relocate service -db cdbrac -service cdb_svc -oldinst cdbrac2 -newinst cdbrac1 -stopoption immediate -f
 
 # setup pdb
-srvctl add service -db cdbrac -service pdb1_svc -pdb pdb1 -preferred cdbrac1 -available cdbrac2 -failovermethod BASIC -failovertype SELECT -failoverretry 180 -failoverdelay 5
+srvctl remove service -db cdbrac -service pdb1_svc -force
+srvctl add service -db cdbrac -service pdb1_svc -pdb pdb1 -preferred cdbrac1 -available cdbrac2 
+#
+srvctl start service -db cdbrac -service pdb1_svc
 srvctl start service -db cdbrac -service pdb1_svc -instance cdbrac1
 
+# status
+srvctl status service -db cdbrac
+
+# -failovermethod BASIC -failovertype SELECT -failoverretry 180 -failoverdelay 5

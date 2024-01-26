@@ -28,7 +28,8 @@ replicant_or_replicate() {
 arcion_version() {
   replicant_or_replicate || return 1
   export ARCION_VERSION="$($ARCION_HOME/bin/$ARCION_BIN version 2>/dev/null | grep Version | awk -F' ' '{print $NF}')"
-  echo $ARCION_VERSION
+  export ARCION_YYMM=$(echo $ARCION_VERSION | awk -F'.' '{print $1 "." $2}')
+  echo "$ARCION_VERSION $ARCION_YYMM"
 }
 
 
@@ -36,12 +37,12 @@ arcion_version() {
 fetch_schema() {
   replicant_or_replicate || return 1
 
-  $ARCION_HOME/bin/$ARCION_BIN fetch-schemas src.yaml \
+  set -x
+  $ARCION_HOME/bin/$ARCION_BIN fetch-schemas src_pdb_23.05.yaml \
     --filter filter.yaml \
     --output-file oracle_schema.yaml \
-    --id $$ \
-    --fetch-row-count-estimate \
-    -v
+    --fetch-row-count-estimate
+  set +x
 }
 
 start_arcion() {
@@ -59,24 +60,97 @@ start_arcion() {
   echo arcion pid=$$
 }
 
-start_arcion_pdb() {
+start_arcion_pdb_2305() {
+  local JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-*/jre -maxdepth 0)
+  local ARCION_HOME=/opt/stage/arcion/replicate-cli-23.05.31.29  
+  local ARCION_BIN=replicate
+  local ID=2305pdb
+
   replicant_or_replicate || return 1
 
-  if [ -f oracle_schema.yaml ]; then
+  if [[ "$ARCION_YYMM" < "23.09" ]] && [[ -f oracle_schema.yaml ]]; then
     export SRC_SCHEMAS="--src-schemas oracle_schema.yaml"
+  else
+    echo "--src-schemas oracle_schema.yaml required but YAML is missing" >&2
   fi
 
-  $ARCION_HOME/bin/$ARCION_BIN real-time src_pdb.yaml dst_null.yaml \
-    --overwrite --id $$ --replace \
+  
+  $ARCION_HOME/bin/$ARCION_BIN real-time src_pdb_23.05.yaml dst_null.yaml \
+    --overwrite --id ${ID} --replace \
+    --general general.yaml \
+    --extractor extractor_pdb_2305.yaml \
+    --filter filter.yaml \
+    --applier applier_null.yaml \
+    ${SRC_SCHEMAS} &
+  PID=$!
+  echo $PID >/tmp/arcion.pid
+  echo arcion pid=$PID
+}
+
+
+start_arcion_cdb_2305() {
+  local JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-*/jre -maxdepth 0)
+  local ARCION_HOME=/opt/stage/arcion/replicate-cli-23.05.31.29  
+  local ARCION_BIN=replicate
+  local ID=2305cdb
+
+  replicant_or_replicate || return 1
+
+  if [[ "$ARCION_YYMM" < "23.09" ]] && [[ -f oracle_schema.yaml ]]; then
+    export SRC_SCHEMAS="--src-schemas oracle_schema.yaml"
+  else
+    echo "--src-schemas oracle_schema.yaml required but YAML is missing" >&2
+  fi
+
+  
+  $ARCION_HOME/bin/$ARCION_BIN real-time src_cdb_23.05.yaml dst_null.yaml \
+    --overwrite --id ${ID} --replace \
     --general general.yaml \
     --extractor extractor.yaml \
     --filter filter.yaml \
     --applier applier_null.yaml \
     ${SRC_SCHEMAS} &
-
-  echo $$ >/tmp/arcion.pid
-  echo arcion pid=$$
+  PID=$!
+  echo $PID >/tmp/arcion.pid
+  echo arcion pid=$PID
 }
+
+start_arcion_cdb_2309() {
+  local JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-*/jre -maxdepth 0)
+  local ARCION_HOME=/opt/stage/arcion/23.09.29.11
+  local ARCION_BIN=replicant
+  local ID=2309CDB
+  
+  $ARCION_HOME/bin/$ARCION_BIN real-time src_cdb_23.09.yaml dst_null.yaml \
+    --overwrite --id ${ID} --replace \
+    --general general.yaml \
+    --extractor extractor.yaml \
+    --filter filter.yaml \
+    --applier applier_null.yaml \
+    &
+  PID=$!
+  echo $PID >/tmp/arcion.pid
+  echo arcion pid=$PID
+}
+
+start_arcion_pdb_2309() {
+  local JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-*/jre -maxdepth 0)
+  local ARCION_HOME=/opt/stage/arcion/23.09.29.11
+  local ARCION_BIN=replicant
+  local ID=2309pdb
+  
+  $ARCION_HOME/bin/$ARCION_BIN real-time src_pdb_23.09.yaml dst_null.yaml \
+    --overwrite --id ${ID} --replace \
+    --general general.yaml \
+    --extractor extractor.yaml \
+    --filter filter.yaml \
+    --applier applier_null.yaml \
+    &
+  PID=$!
+  echo $PID >/tmp/arcion.pid
+  echo arcion pid=$PID
+}
+
 
 start_arcion_ss() {
   export JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-*/jre -maxdepth 0)
@@ -107,16 +181,105 @@ show_arcion_trace() {
 }
 
 
+# create and load ycsb
+
+load_ycsb_cdb() {
+  if [ -z "${svc_name}" ]; then local svc_name=cdb_svc; fi
+  if [ -z "${y_tablename}" ]; then local y_tablename="usertablecdb"; fi
+
+  load_ycsb
+}
+
+load_ycsb_pdb() {
+  if [ -z "${svc_name}" ]; then local svc_name=pdb1_svc; fi
+  if [ -z "${y_tablename}" ]; then local y_tablename="usertablepdb"; fi
+
+  load_ycsb
+}
+
+# svc_name
+create_ycsb_table() {
+  # check required param
+  if [ -z "${svc_name}" ]; then "svc_name not defined"; return 1; fi
+  # set default params
+  if [ -z "${y_tablename}" ]; then local y_tablename="usertable"; fi
+  # run
+  set -x
+  jsqsh -n --jdbc-class "oracle.jdbc.OracleDriver" \
+  --driver oracle \
+  --jdbc-url "jdbc:oracle:thin:@//ol7-19-scan:1521/${svc_name}" \
+  --user "c##arcsrc" \
+  --password "Passw0rd" <<EOF
+  CREATE TABLE ${y_tablename} (
+      YCSB_KEY NUMBER PRIMARY KEY,
+      FIELD0 VARCHAR2(255), FIELD1 VARCHAR2(255),
+      FIELD2 VARCHAR2(255), FIELD3 VARCHAR2(255),
+      FIELD4 VARCHAR2(255), FIELD5 VARCHAR2(255),
+      FIELD6 VARCHAR2(255), FIELD7 VARCHAR2(255),
+      FIELD8 VARCHAR2(255), FIELD9 VARCHAR2(255)
+  ) organization index; 
+  select table_name from user_tables where table_name='${y_tablename^^}';
+EOF
+  set +x
+}
+
+load_ycsb() {
+  # check required param
+  create_ycsb_table
+  # set default params
+  if [ -n "${y_tablename}" ]; then local y_tablename="-p table=${y_tablename}'"; fi
+  # run
+  set -x 
+  pushd /opt/stage/ycsb/ycsb-jdbc-binding-0.18.0-SNAPSHOT/ >/dev/null
+  bin/ycsb.sh load jdbc -s -P workloads/workloada ${y_tablename} \
+  -p db.driver=oracle.jdbc.OracleDriver \
+  -p db.url="jdbc:oracle:thin:@//ol7-19-scan:1521/${svc_name}" \
+  -p db.user="c##arcsrc" \
+  -p db.passwd="Passw0rd" \
+  -p jdbc.autocommit=true \
+  -p jdbc.fetchsize=10 \
+  -p db.batchsize=1000 \
+  -p recordcount=100000 \
+  -p jdbc.batchupdateapi=true \
+  -p jdbc.ycsbkeyprefix=false \
+  -p insertorder=ordered 
+  
+  set +x
+  popd >/dev/null
+}
 
 # start YCSB 
-start_ycsb() {
-  YCSB_TARGET=${1:-0}
-  DBNAME=${2:-cdb_svc}
 
-  rm /var/tmp/ycsb.run.tps1.$$
-  /tmp/ycsb.$$.pid
+start_ycsb_pdb() {
+  if [ -z "${svc_name}" ]; then local svc_name=pdb1_svc; fi
+  if [ -z "${y_tablename}" ]; then local y_tablename="usertablepdb"; fi
+  
+  start_ycsb
+}
+
+start_ycsb_cdb() {
+  if [ -z "${svc_name}" ]; then local svc_name=cdb_svc; fi
+  if [ -z "${y_tablename}" ]; then local y_tablename="usertablecdb"; fi
+  
+  start_ycsb
+}
+
+
+start_ycsb() {
+  # check required param
+  if [ -z "$svc_name" ]; then echo "$2 y_target must be set" >&2; return 1; fi
+  # set default params
+  if [ -z "$y_target" ]; then echo "setting y_target=1"; local y_target=1; fi
+  if [ -z "$y_thread" ]; then echo "setting y_thread=1"; local y_thread=1; fi
+  # use param in the call
+  if [ -n "${y_tablename}" ]; then local y_tablename="-p table=${y_tablename}"; fi
+  if [ -n "${y_target}" ]; then local y_target="-target ${y_target}"; fi
+  if [ -n "${y_thread}" ]; then local y_thread="-threads ${y_thread}"; fi
+
+  rm /var/tmp/ycsb.run.tps1.$$ /tmp/ycsb.$$.pid 2>/dev/null
   pushd -n /opt/stage/ycsb/ycsb-jdbc-binding-0.18.0-SNAPSHOT/
-  bin/ycsb.sh run jdbc -s -P workloads/workloada -p db.driver=oracle.jdbc.OracleDriver -p db.url="jdbc:oracle:thin:@//ol7-19-scan:1521/${DBNAME}" -p db.user="c##ycsb" -p db.passwd="Passw0rd" -p db.batchsize=1000  -p jdbc.fetchsize=10 -p jdbc.autocommit=true -p jdbc.batchupdateapi=true -p db.batchsize=1000 -p recordcount=100000 -p jdbc.ycsbkeyprefix=false -p insertorder=ordered -p operationcount=10000000 -p readproportion=0 -p updateproportion=1 -threads 1 -target ${YCSB_TARGET} >/var/tmp/ycsb.run.tps1.$$ 2>&1 &
+  bin/ycsb.sh run jdbc -s -P workloads/workloada ${y_tablename} -p db.driver=oracle.jdbc.OracleDriver -p db.url="jdbc:oracle:thin:@//ol7-19-scan:1521/${svc_name}" -p db.user="c##arcsrc" -p db.passwd="Passw0rd" -p db.batchsize=1000  -p jdbc.fetchsize=10 -p jdbc.autocommit=true -p jdbc.batchupdateapi=true -p db.batchsize=1000 -p recordcount=100000 -p jdbc.ycsbkeyprefix=false -p insertorder=ordered -p operationcount=10000000 -p readproportion=0 -p updateproportion=1 ${y_thread} ${y_target} 
+  #>/var/tmp/ycsb.run.tps1.$$ 2>&1
   YCSB_PID=$!
   echo ${YCSB_PID} > /tmp/ycsb.$$.pid 
   echo "YCSB_PID=$YCSB_PID"
@@ -124,6 +287,9 @@ start_ycsb() {
   popd
 }
 
+# Parameters
+#   YCSB_TARGET=${1:-0}
+#   SVC_NAME=${2:-cdb_svc}
 restart_ycsb() {
   while [ 1 ]; do
       wait_log /var/tmp/ycsb.run.tps1.$$
@@ -160,7 +326,8 @@ show_connections() {
 EOF
 }
 
-switch_service() {
+
+switch_service_cdb() {
   ssh oracle@ol7-19-rac1 ". ~/.bash_profile; srvctl status service -db cdbrac -s cdb_svc" | awk '{print $NF}' > /tmp/cdb_svc_running_instance.$$.txt
 
   ssh oracle@ol7-19-rac1 ". ~/.bash_profile; srvctl config service -d cdbrac -s cdb_svc" > /tmp/cdb_svc_config_service.$$.txt
@@ -177,6 +344,34 @@ switch_service() {
   if [ -n "${new_inst}" ]; then 
       old_inst=$(cat /tmp/cdb_svc_running_instance.$$.txt)
       ssh oracle@ol7-19-rac1 ". ~/.bash_profile; srvctl relocate service -db cdbrac -service cdb_svc -oldinst ${old_inst} -newinst ${new_inst} -stopoption IMMEDIATE -force -verbose; srvctl status service -db cdbrac -s cdb_svc"
+  fi
+
+  show_connections | grep -i arcsrc
+}
+
+show_status_service() {
+  ssh oracle@ol7-19-rac1 ". ~/.bash_profile; srvctl status service -db cdbrac"
+}
+
+switch_service_pdb() {
+  local SVC_NAME=pdb1_svc
+
+  ssh oracle@ol7-19-rac1 ". ~/.bash_profile; srvctl status service -db cdbrac -s ${SVC_NAME}" | awk '{print $NF}' > /tmp/${SVC_NAME}_running_instance.$$.txt
+
+  ssh oracle@ol7-19-rac1 ". ~/.bash_profile; srvctl config service -d cdbrac -s ${SVC_NAME}" > /tmp/${SVC_NAME}_config_service.$$.txt
+
+  grep "^Preferred instances:" /tmp/${SVC_NAME}_config_service.$$.txt | awk '{print $NF}' | tr ',' '\n' > /tmp/${SVC_NAME}_preferred_instances.$$.txt
+
+  grep "^Available instances:" /tmp/${SVC_NAME}_config_service.$$.txt | awk '{print $NF}' | tr ',' '\n'> /tmp/${SVC_NAME}_available_instances.$$.txt
+
+  cat /tmp/${SVC_NAME}_preferred_instances.$$.txt /tmp/${SVC_NAME}_available_instances.$$.txt | sort -u > /tmp/${SVC_NAME}_all_instances.$$.txt
+
+  # show next node to run the service
+  new_inst=$(comm -23 /tmp/${SVC_NAME}_all_instances.$$.txt /tmp/${SVC_NAME}_running_instance.$$.txt | head -n 1)
+
+  if [ -n "${new_inst}" ]; then 
+      old_inst=$(cat /tmp/${SVC_NAME}_running_instance.$$.txt)
+      ssh oracle@ol7-19-rac1 ". ~/.bash_profile; srvctl relocate service -db cdbrac -service ${SVC_NAME} -oldinst ${old_inst} -newinst ${new_inst} -stopoption IMMEDIATE -force -verbose; srvctl status service -db cdbrac -s ${SVC_NAME}"
   fi
 
   show_connections | grep -i arcsrc

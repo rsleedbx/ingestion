@@ -1,0 +1,28 @@
+# for 09.xx
+# snapshot - service-name points to pdb  
+
+type: ORACLE
+host: 'ol7-19-scan'
+port: '1521'
+service-name: 'pdb1_svc'
+username: 'c##arcsrc'
+password: 'Passw0rd'
+max-connections: 5
+max-retries: 1
+retry-wait-duration-ms: 1000
+continuous-log-mining: false     
+
+pdb-name: PDB1 # this needs to be upper case and names needs to be here and not in the cdb-connection secion
+
+# for 09.xx
+cdb-connection: 
+  host: 'ol7-19-scan'
+  port: '1521'
+  service-name: 'cdb_svc'
+  username: 'c##arcsrc'
+  password: 'Passw0rd'
+  max-connections: 5
+  max-retries: 1
+  retry-wait-duration-ms: 1000
+  continuous-log-mining: false 
+

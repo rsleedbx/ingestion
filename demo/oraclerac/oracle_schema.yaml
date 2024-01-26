@@ -30,5 +30,5 @@ schemas:
     primary-key:
       columns:
       - YCSB_KEY
-      name: SYS_IOT_TOP_73380
+      name: SYS_IOT_TOP_73059
 user-roles: {}

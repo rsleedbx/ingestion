@@ -1,5 +1,5 @@
 license-path: /opt/stage/arcion/replicant.lic
-data-dir: /opt/stage/demo/oraclerac/logs
+data-dir: /home/rslee/github/dbx/ingestion/demo/oraclerac/logs
 permission-validation: 
   enable: false
 #trace-log: #trace-log avail starting 23-05-31
