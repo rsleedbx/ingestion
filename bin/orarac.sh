@@ -104,7 +104,7 @@ start_arcion_cdb_2305() {
 
   
   $ARCION_HOME/bin/$ARCION_BIN real-time src_cdb_23.05.yaml dst_null.yaml \
-    --overwrite --id ${ID} --replace \
+    --overwrite --id ${ID} --replace --clean-job \
     --general general.yaml \
     --extractor extractor.yaml \
     --filter filter.yaml \
