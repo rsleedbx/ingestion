@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-sudo mkdir -p /opt/stage/libs && chown $(logname):$(logname) /opt/stage/libs
+sudo mkdir -p /opt/stage/libs && chown "$(logname)" /opt/stage/libs
 # deltalake
 if [ ! -f /opt/stage/libs/SparkJDBC42.jar ]; then
     pushd /opt/stage/libs >/dev/null
@@ -34,6 +34,16 @@ if [ ! -f /opt/stage/libs/postgresql-42.7.1.jar ]; then
     echo "postgres  /opt/stage/libs/postgresql-42.7.1.jar downloaded"
 else
     echo "postgres  /opt/stage/libs/postgresql-42.7.1.jar found"
+fi
+
+# mariadb
+if [ ! -f /opt/stage/libs/mariadb-java-client-3.3.2.jar ]; then
+    pushd /opt/stage/libs >/dev/null
+    wget -q https://dlm.mariadb.com/3700566/Connectors/java/connector-java-3.3.2/mariadb-java-client-3.3.2.jar
+    popd >/dev/null
+    echo "mariadb  /opt/stage/libs/mariadb-java-client-3.3.2.jar downloaded"
+else
+    echo "mariadb  /opt/stage/libs/mariadb-java-client-3.3.2.jar found"
 fi
 
 # download oracle jdbc if not there

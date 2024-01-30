@@ -1,5 +1,13 @@
 #!/usr/env/bin/bash
 
+port_mysql() {
+    local port=${1:-3306}
+  if [ -z "${jdbc_port}" ]; then export jdbc_port=$(podman port --all | grep "${port}/tcp" | head -n 1 | cut -d ":" -f 2); fi
+  if [ -z "${jdbc_class}" ]; then export jdbc_class="org.mariadb.jdbc.Driver"; fi
+  if [ -z "${jsqsh_driver}" ]; then export jsqsh_driver="mysql"; fi
+  if [ -z "${jdbc_url}" ]; then export jdbc_url="jdbc:mysql://127.0.0.1:${jdbc_port}/${y_dbname}?permitMysqlScheme&restrictedAuth=mysql_native_password&rewriteBatchedStatements=true"; fi
+}
+
 # wait for the log file to exist before running tail
 wait_log() {
   LOGFILE=$1
@@ -200,17 +208,18 @@ load_ycsb_pdb() {
 # svc_name
 create_ycsb_table() {
   # set default params
+  if [ -z "${y_dbname}" ]; then local y_dbname="arcsrc"; fi  
   if [ -z "${y_tablename}" ]; then local y_tablename="usertable"; fi
   if [ -z "${y_port}" ]; then local y_port="$(port_mysql)"; fi
   # check required param
-  if [ -z "${svc_name}" ]; then "svc_name not defined"; return 1; fi  
-  if [ -z "${y_port}" ]; then "y_port not defined"; return 1; fi    
+  if [ -z "${y_dbname}" ]; then echo "y_dbname not defined"; return 1; fi  
+  if [ -z "${y_port}" ]; then echo "y_port not defined"; return 1; fi    
   # run
+  port_mysql
   set -x
   jsqsh -n --jdbc-class "org.mariadb.jdbc.Driver" \
   --driver mysql \
-  --jdbc-url "jdbc:mysql://127.0.0.1:${y_port}/arcsrc?permitMysqlScheme&restrictedAuth=mysql_native_password&rewriteBatchedStatements=true"
-" \
+  --jdbc-url "jdbc:mysql://127.0.0.1:${jdbc_port}/arcsrc?permitMysqlScheme&restrictedAuth=mysql_native_password&rewriteBatchedStatements=true" \
   --user "arcsrc" \
   --password "Passw0rd" <<EOF
 CREATE TABLE IF NOT EXISTS usertable (
@@ -223,6 +232,7 @@ CREATE TABLE IF NOT EXISTS usertable (
     TS TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     INDEX (TS)
 );
+desc usertable;
 EOF
   set +x
 }
@@ -233,12 +243,13 @@ load_ycsb() {
   # set default params
   if [ -n "${y_tablename}" ]; then local y_tablename="-p table=${y_tablename}'"; fi
   # run
+  port_mysql
   set -x 
   pushd /opt/stage/ycsb/ycsb-jdbc-binding-0.18.0-SNAPSHOT/ >/dev/null
   bin/ycsb.sh load jdbc -s -P workloads/workloada ${y_tablename} \
-  -p db.driver=oracle.jdbc.OracleDriver \
-  -p db.url="jdbc:oracle:thin:@//ol7-19-scan:1521/${svc_name}" \
-  -p db.user="c##arcsrc" \
+  -p db.driver=$jdbc_class \
+  -p db.url="jdbc:mysql://127.0.0.1:${jdbc_port}/arcsrc?permitMysqlScheme&restrictedAuth=mysql_native_password&rewriteBatchedStatements=true" \
+  -p db.user="arcsrc" \
   -p db.passwd="Passw0rd" \
   -p jdbc.autocommit=true \
   -p jdbc.fetchsize=10 \
@@ -246,7 +257,7 @@ load_ycsb() {
   -p recordcount=100000 \
   -p jdbc.batchupdateapi=true \
   -p jdbc.ycsbkeyprefix=false \
-  -p insertorder=ordered 
+  -p insertorder=ordered
   
   set +x
   popd >/dev/null
@@ -270,19 +281,34 @@ start_ycsb_cdb() {
 
 
 start_ycsb() {
-  # check required param
-  if [ -z "$svc_name" ]; then echo "$2 y_target must be set" >&2; return 1; fi
+
   # set default params
+  if [ -z "$svc_name" ]; then echo "setting svc_name=arcsrc"; local svc_name=arcsrc; fi
   if [ -z "$y_target" ]; then echo "setting y_target=1"; local y_target=1; fi
   if [ -z "$y_thread" ]; then echo "setting y_thread=1"; local y_thread=1; fi
   # use param in the call
   if [ -n "${y_tablename}" ]; then local y_tablename="-p table=${y_tablename}"; fi
   if [ -n "${y_target}" ]; then local y_target="-target ${y_target}"; fi
   if [ -n "${y_thread}" ]; then local y_thread="-threads ${y_thread}"; fi
-
+  # check required param
+  if [ -z "$svc_name" ]; then echo "$2 svc_name must be set" >&2; return 1; fi
   rm /var/tmp/ycsb.run.tps1.$$ /tmp/ycsb.$$.pid 2>/dev/null
-  pushd -n /opt/stage/ycsb/ycsb-jdbc-binding-0.18.0-SNAPSHOT/
-  bin/ycsb.sh run jdbc -s -P workloads/workloada ${y_tablename} -p db.driver=oracle.jdbc.OracleDriver -p db.url="jdbc:oracle:thin:@//ol7-19-scan:1521/${svc_name}" -p db.user="c##arcsrc" -p db.passwd="Passw0rd" -p db.batchsize=1000  -p jdbc.fetchsize=10 -p jdbc.autocommit=true -p jdbc.batchupdateapi=true -p db.batchsize=1000 -p recordcount=100000 -p jdbc.ycsbkeyprefix=false -p insertorder=ordered -p operationcount=10000000 -p readproportion=0 -p updateproportion=1 ${y_thread} ${y_target} 
+  pushd /opt/stage/ycsb/ycsb-jdbc-binding-0.18.0-SNAPSHOT/
+  port_mysql
+  ./bin/ycsb.sh run jdbc -s -P workloads/workloada ${y_tablename} \
+  -p db.url="jdbc:mysql://127.0.0.1:${jdbc_port}/arcsrc?permitMysqlScheme&restrictedAuth=mysql_native_password&rewriteBatchedStatements=true" \
+  -p db.user="arcsrc" \
+  -p db.passwd="Passw0rd" \
+  -p jdbc.autocommit=true \
+  -p jdbc.fetchsize=10 \
+  -p db.batchsize=1000 \
+  -p recordcount=100000 \
+  -p operationcount=10000000 \
+  -p jdbc.batchupdateapi=true \
+  -p jdbc.ycsbkeyprefix=false \
+  -p insertorder=ordered \
+  -p jdbc.prependtimestamp=true
+
   #>/var/tmp/ycsb.run.tps1.$$ 2>&1
   YCSB_PID=$!
   echo ${YCSB_PID} > /tmp/ycsb.$$.pid 
