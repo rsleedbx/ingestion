@@ -45,3 +45,10 @@ CREATE TABLE IF NOT EXISTS usertable (
     FIELD8 TEXT, FIELD9 TEXT
 ); 
 EOF
+
+# show tables
+export PGPASSWORD=Passw0rd 
+psql --username arcsrc --dbname arcsrc --host 127.0.0.1 <<EOF
+-- show tables
+\dt
+EOF
