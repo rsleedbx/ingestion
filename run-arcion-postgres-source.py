@@ -151,3 +151,16 @@ stage:
 # MAGIC   --extractor extractor.yaml \
 # MAGIC   --filter filter.yaml \
 # MAGIC   --applier applier_deltalake.yaml 
+
+cluster_id = spark.conf.get("spark.databricks.clusterUsageTags.clusterId")
+
+workspace_id =spark.conf.get("spark.databricks.clusterUsageTags.clusterOwnerOrgId")
+
+# clusterName = spark.conf.get("spark.databricks.clusterUsageTags.clusterName")
+
+workspaceUrl = spark.conf.get("spark.databricks.workspaceUrl") # host name
+
+http_path = f"sql/protocolv1/o/{workspace_id}/{cluster_id}"
+
+spark_url=f"jdbc:spark://{workspaceUrl}:443/default;transportMode=http;ssl=1;httpPath={http_path};AuthMech=3"
+databricks_url=f"jdbc:databricks://{workspaceUrl}:443/default;transportMode=http;ssl=1;httpPath={http_path};AuthMech=3"
