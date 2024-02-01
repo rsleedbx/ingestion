@@ -1,0 +1,11 @@
+
+snapshot:
+  threads: 1
+  skip-tables-on-failures : true
+  _traceDBTasks: true
+realtime:
+  threads: 1
+  skip-tables-on-failures : true
+  txn-size-rows: 50_000 # default=5k too small for YCSB high TPS
+
+

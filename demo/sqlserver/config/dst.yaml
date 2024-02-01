@@ -1,0 +1,5 @@
+
+type: NULLSTORAGE
+storage-location: /home/rslee/github/dbx/ingestion/demo/sqlserver/temp # schema and YAML files are written here
+
+

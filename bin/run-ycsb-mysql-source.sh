@@ -1,7 +1,7 @@
 #!/usr/env/bin/bash
 
-port_mysql() {
-    local port=${1:-3306}
+port_db() {
+    local port=${1:-1433}
   if [ -z "${jdbc_port}" ]; then export jdbc_port=$(podman port --all | grep "${port}/tcp" | head -n 1 | cut -d ":" -f 2); fi
   if [ -z "${jdbc_class}" ]; then export jdbc_class="org.mariadb.jdbc.Driver"; fi
   if [ -z "${jsqsh_driver}" ]; then export jsqsh_driver="mysql"; fi

@@ -1,0 +1,4 @@
+
+type: NULLSTORAGE
+storage-location: $(pwd)/temp # schema and YAML files are written here
+

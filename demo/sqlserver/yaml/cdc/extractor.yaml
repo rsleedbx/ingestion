@@ -1,0 +1,25 @@
+snapshot:
+  threads: ${SRCDB_SNAPSHOT_THREADS}
+  _traceDBTasks: true
+  fetch-user-roles: false
+  _fetch-exact-row-count: false    
+    
+  min-job-size-rows: 100_000 # default 1_000_000 is too large for purposes demo
+
+realtime:
+  threads: ${SRCDB_REALTIME_THREADS}
+  _traceDBTasks: true
+  # enable DDL replication
+  ddl-replication:
+    enable: true
+    catalog: "${SRCDB_DB}"
+    schema: "${SRCDB_SCHEMA}"
+    detect-ddl-interval: 1   # default 600 is too long for demo wait
+    ddl-replication-mode: INLINE # Default is REINIT mode. [REINIT|INLINE]
+  # replicate_io_cdc_heartbeat table at ${SRCDB_ARC_USER} database instead of default io_replication 
+  heartbeat:
+    enable: false
+    catalog: ${SRCDB_DB}
+    schema: ${SRCDB_SCHEMA}
+    table-name : REPLICATE_IO_CDC_HEARTBEAT
+
