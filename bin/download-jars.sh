@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 
-sudo mkdir -p /opt/stage/libs && chown "$(logname)" /opt/stage/libs
+LOGNAME=$(logname 2>/dev/null)
+LOGNAME=${LOGNAME:-root}
+
+sudo mkdir -p /opt/stage/libs && chown "${LOGNAME}" /opt/stage/libs
 # deltalake
 if [ ! -f /opt/stage/libs/SparkJDBC42.jar ]; then
     pushd /opt/stage/libs >/dev/null

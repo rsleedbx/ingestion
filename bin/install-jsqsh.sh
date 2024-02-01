@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 
+LOGNAME=$(logname 2>/dev/null)
+LOGNAME=${LOGNAME:-root}
+
 if [ ! -d /opt/stage/bin ]; then
-    sudo mkdir -p /opt/stage/bin && sudo chown $(logname) /opt/stage/bin
+    sudo mkdir -p /opt/stage/bin && sudo chown ${LOGNAME} /opt/stage/bin
 fi
 
 if [ ! -d /opt/stage/bin/jsqsh-dist-3.0-SNAPSHOT ]; then
