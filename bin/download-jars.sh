@@ -3,7 +3,10 @@
 LOGNAME=$(logname 2>/dev/null)
 LOGNAME=${LOGNAME:-root}
 
-sudo mkdir -p /opt/stage/libs && chown "${LOGNAME}" /opt/stage/libs
+if [ ! -d /opt/stage/libs ]; then
+    sudo mkdir -p /opt/stage/libs && chown "${LOGNAME}" /opt/stage/libs
+fi
+
 # deltalake
 if [ ! -f /opt/stage/libs/SparkJDBC42.jar ]; then
     pushd /opt/stage/libs >/dev/null
