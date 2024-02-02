@@ -170,6 +170,17 @@ go
 EOF
 }
 
+list_regular_tables() {
+  list_tables | \
+  awk -F ',' '{print $1}' | \
+  grep -v -e MSchange_tracking_history \
+    -e replicate_io_audit_ddl \
+    -e replicate_io_audit_tbl_cons \
+    -e replicate_io_audit_tbl_schema \
+    -e REPLICATE_IO_CDC_HEARTBEAT \
+    -e systranschemas 
+}
+
 add_column_ycsb() {
   sql_cli <<EOF
 ALTER TABLE ${fq_table_name} ADD FIELD11 TEXT NULL
@@ -209,23 +220,64 @@ EOF
 }
 
 enable_cdc() {
+  rm /tmp/enable_cdc.txt 2>/dev/null
 
-# \tables --type=TABLE | awk -F '[| ]+' '{print $3}'
-
-sql_cli <<"EOF"
+  list_regular_tables | while read tablename; do
+    cat >>/tmp/enable_cdc.txt <<EOF
 EXEC sys.sp_cdc_enable_table  
-@source_schema = N'dbo',  
-@source_name   = N'YCSBSPARSE',  
+@source_schema = '${SRCDB_SCHEMA:-dbo}',  
+@source_name   = '$tablename',  
 @role_name     = NULL,  
 @supports_net_changes = 0
 EOF
+  done
+  if [ -s /tmp/enable_cdc.txt ]; then 
+    cat /tmp/enable_cdc.txt | sql_cli
+  fi
+}
+
+disable_cdc() {
+  rm /tmp/disable_cdc.txt 2>/dev/null
+
+  list_regular_tables | while read tablename; do
+    cat >>/tmp/disable_cdc.txt <<EOF
+EXEC sys.sp_cdc_disable_table  
+@source_schema = '${SRCDB_SCHEMA:-dbo}',  
+@source_name   = '$tablename',  
+@capture_instance = 'all'
+EOF
+  done
+  if [ -s /tmp/disable_cdc.txt ]; then 
+    cat /tmp/disable_cdc.txt | sql_cli
+  fi
 }
 
 enable_change_tracking() {
-sql_cli <<"EOF"
-ALTER TABLE YCSBSPARSE ENABLE CHANGE_TRACKING
+  rm /tmp/enable_change_tracking.txt 2>/dev/null
+
+  list_regular_tables | while read tablename; do  
+cat >>/tmp/enable_change_tracking.txt <<EOF
+ALTER TABLE ${tablename} ENABLE CHANGE_TRACKING
 go  
 EOF
+  done
+  if [ -s /tmp/enable_change_tracking.txt ]; then 
+    cat /tmp/enable_change_tracking.txt | sql_cli
+  fi
+}
+
+disable_change_tracking() {
+  rm /tmp/disable_change_tracking.txt 2>/dev/null
+
+  list_regular_tables | while read tablename; do  
+cat >>/tmp/disable_change_tracking.txt <<EOF
+ALTER TABLE ${tablename} DISABLE CHANGE_TRACKING
+go  
+EOF
+  done
+  if [ -s /tmp/disable_change_tracking.txt ]; then 
+    cat /tmp/disable_change_tracking.txt | sql_cli
+  fi
 }
 
 load_ycsb() {
