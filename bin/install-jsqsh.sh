@@ -9,7 +9,7 @@ fi
 
 if [ ! -d /opt/stage/bin/jsqsh-dist-3.0-SNAPSHOT ]; then
     cd /opt/stage/bin \
-        && wget https://github.com/arcionlabs/jsqsh/releases/download/arcionlabs/jsqsh-dist-3.0-SNAPSHOT-bin.tar.gz \
+        && wget https://github.com/arcionlabs/jsqsh/releases/download/arcion-24.02/jsqsh-dist-3.0-SNAPSHOT-bin.tar.gz \
         && gzip -dc jsqsh* | tar -xvf - \
         && rm *.tar.gz
     echo "jsqsh  /opt/stage/bin/jsqsh-dist-3.0-SNAPSHOT downloaded"

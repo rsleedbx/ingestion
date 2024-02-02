@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 
+LOGNAME=$(logname 2>/dev/null)
+LOGNAME=${LOGNAME:-root}
+
 # download ycsb
 if [ ! -d /opt/stage/ycsb/ycsb-jdbc-binding-0.18.0-SNAPSHOT ]; then
-  sudo mkdir -p /opt/stage/ycsb && chown $(logname):$(logname) /opt/stage/ycsb
+  sudo mkdir -p /opt/stage/ycsb && chown ${LOGNAME}:${LOGNAME} /opt/stage/ycsb
   pushd /opt/stage/ycsb >/dev/null
   [ ! -f ycsb-jdbc-binding-0.18.0-SNAPSHOT.tar.gz ]  && curl -O --location https://github.com/arcionlabs/YCSB/releases/download/arcion-24.01/ycsb-jdbc-binding-0.18.0-SNAPSHOT.tar.gz 
   [ -f ycsb-jdbc-binding-0.18.0-SNAPSHOT.tar.gz ] && gzip -dc *.gz | tar -xvf -

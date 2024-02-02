@@ -5,6 +5,61 @@ heredoc_file() {
     eval "$( echo -e '#!/usr/bin/env bash\ncat << EOF_EOF_EOF' | cat - $1 <(echo -e '\nEOF_EOF_EOF') )"    
 }
 
+sql_cli() {
+  # when stdin is redirected
+  # -h-1 remove header and -----
+  if [ ! -t 0 ]; then
+    local sql_cli_batch_mode="-h-1"
+  fi
+  sqlcmd -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -C $sql_cli_batch_mode "$@"
+}
+
+sql_root_cli() {
+  # when stdin is redirected
+  # -h-1 remove header and -----
+  if [ ! -t 0 ]; then
+    local sql_cli_batch_mode="-h-1"
+  fi
+  sqlcmd -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ROOT_USER}" -P "${SRCDB_ROOT_PW}" -C $sql_cli_batch_mode "$@"
+}
+
+jdbc_root_cli() {
+  # when stdin is redirected
+  # -e echo sql commands
+  # -n batch mode and don't save in history
+  # -v don't print header and footer
+  if [ ! -t 0 ]; then
+    local batch_mode="-n -e -v headers=false -v footers=false"
+  fi
+
+  PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH \
+  CLASSPATH=$SRCDB_CLASSPATH:$CLASSPATH \
+  jsqsh ${batch_mode} --jdbc-class "$SRCDB_JDBC_DRIVER" \
+  --driver "$SRCDB_JSQSH_DRIVER" \
+  --jdbc-url "$SRCDB_JDBC_URL" \
+  --user "$SRCDB_ROOT_USER" \
+  --password "$SRCDB_ROOT_PW" "$@"
+}
+
+# -n -e for batch
+jdbc_cli() {
+  # when stdin is redirected
+  # -e echo sql commands
+  # -n batch mode and don't save in history
+  # -v don't print header and footer
+  if [ ! -t 0 ]; then
+    local batch_mode="-n -v headers=false -v footers=false"
+  fi
+
+  PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH \
+  CLASSPATH=$SRCDB_CLASSPATH:$CLASSPATH \
+  jsqsh ${batch_mode} --jdbc-class "$SRCDB_JDBC_DRIVER" \
+  --driver "$SRCDB_JSQSH_DRIVER" \
+  --jdbc-url "$SRCDB_JDBC_URL" \
+  --user "$SRCDB_ARC_USER" \
+  --password "$SRCDB_ARC_PW" "$@"
+}
+
 # change this for the 
 port_db() {
 
@@ -20,7 +75,7 @@ port_db() {
     export SRCDB_ROOT_USER=sa
     export SRCDB_ROOT_PW=Passw0rd
 
-    #
+    # arcion parallelism
     export SRCDB_SNAPSHOT_THREADS=1
     export SRCDB_DELTA_SNAPSHOT_THREADS=1
     export SRCDB_REALTIME_THREADS=1
@@ -31,7 +86,13 @@ port_db() {
     # database dependent 
     local port=${1:-1433}
 
-    export SRCDB_PORT=$(podman port --all | grep "${port}/tcp" | head -n 1 | cut -d ":" -f 2)
+    # jdbc params for ycsb and jsqsh
+    if [ -z "$(netstat -an | grep -i listen | grep 1433)" ]; then
+      export SRCDB_PORT=${port}
+    else
+      export SRCDB_PORT=$(podman port --all | grep "${port}/tcp" | head -n 1 | cut -d ":" -f 2)
+    fi
+
     export SRCDB_HOST=127.0.0.1
     export SRCDB_YCSB_DRIVER="jdbc"
     export SRCDB_JSQSH_DRIVER="mssql2k5"
@@ -47,6 +108,11 @@ port_db() {
     fi
     export JSQSH_JAVA_OPTS=""
 
+    if [ ! -x jsqsh ]; then
+      export PATH=/opt/stage/bin/jsqsh-dist-3.0-SNAPSHOT/bin:$PATH
+      echo "PATH=/opt/stage/bin/jsqsh-dist-3.0-SNAPSHOT/bin added"
+    fi
+
     set_ycsb_classpath
 }
 
@@ -60,87 +126,68 @@ EOF
     popd >/dev/null
 }
 
-jdbc_root_cli() {
-    export CLASSPATH=$SRCDB_CLASSPATH:$CLASSPATH
-    jsqsh --jdbc-class "$SRCDB_JDBC_DRIVER" \
-    --driver "$SRCDB_JSQSH_DRIVER" \
-    --jdbc-url "$SRCDB_JDBC_URL" \
-    --user "$SRCDB_ROOT_USER" \
-    --password "$SRCDB_ROOT_PW" "$@"
-}
-
-jdbc_cli() {
-    export CLASSPATH=$SRCDB_CLASSPATH:$CLASSPATH
-    jsqsh --jdbc-class "$SRCDB_JDBC_DRIVER" \
-    --driver "$SRCDB_JSQSH_DRIVER" \
-    --jdbc-url "$SRCDB_JDBC_URL" \
-    --user "$SRCDB_ARC_USER" \
-    --password "$SRCDB_ARC_PW" "$@"
-}
-
 # svc_name
 create_ycsb_table() {
     # -e echo the command
     # -n non-interactive mode 
-  heredoc_file sql/ycsb.sql | tee -a config/ycsb.sql | jdbc_cli -n -e
+  heredoc_file demo/sqlserver/sql/ycsb.sql | tee -a demo/sqlserver/config/ycsb.sql | sql_cli
 }
 
 add_column_ycsb() {
-  jdbc_cli -n -e<<EOF
-ALTER TABLE ${fq_table_name} 
-ADD FIELD11 TEXT NULL
+  sql_cli <<EOF
+ALTER TABLE ${fq_table_name} ADD FIELD11 TEXT NULL
 go
 EOF
 }
 
 drop_column_ycsb() {
-  jdbc_cli -n -e<<EOF
-ALTER TABLE ${fq_table_name} 
-DROP COLUMN FIELD11
+  sql_cli <<EOF
+ALTER TABLE ${fq_table_name} DROP COLUMN FIELD11
 go
 EOF
 }
 
 drop_ycsb_table() {
-    # -e echo the command
-    # -n non-interactive mode 
-  jdbc_cli -n -e<<EOF
+  sql_cli <<EOF
 drop TABLE ${fq_table_name}
 go
 EOF
 }
 
 truncate_ycsb_table() {
-    # -e echo the command
-    # -n non-interactive mode 
-  jdbc_cli -n -e<<EOF
+  sql_cli <<EOF
 truncate TABLE ${fq_table_name}
 go
 EOF
 }
 
 count_ycsb_table() {
-    # -e echo the command
-    # -n non-interactive mode 
-  jdbc_cli -n -v headers=false -v footers=false<<EOF
-select count(*) from ${fq_table_name}; -m csv
+  sql_cli <<EOF | head -n 1
+select count(*) from ${fq_table_name}
+go
 EOF
+# ; -m csv required for jsqsh
+
 }
 
 enable_cdc() {
 
-jdbc_cli -n -v headers=false -v footers=false <<"EOF"
-\tables --type=TABLE | awk -F '[| ]+' '{print $3}'
+# \tables --type=TABLE | awk -F '[| ]+' '{print $3}'
+
+sql_cli <<"EOF"
 EXEC sys.sp_cdc_enable_table  
 @source_schema = N'dbo',  
-@source_name   = N'MyTable',  
+@source_name   = N'YCSBSPARSE',  
 @role_name     = NULL,  
-@supports_net_changes = 1 or 0
+@supports_net_changes = 0
 EOF
 }
 
 enable_change_tracking() {
-echo "me"
+sql_cli <<"EOF"
+ALTER TABLE YCSBSPARSE ENABLE CHANGE_TRACKING
+go  
+EOF
 }
 
 load_ycsb() {
@@ -149,8 +196,8 @@ load_ycsb() {
   # set default params
   local y_tablename="-p table=${fq_table_name}"
   # run
-  set -x 
   pushd /opt/stage/ycsb/ycsb-jdbc-binding-0.18.0-SNAPSHOT/ >/dev/null
+  JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-* -maxdepth 0 ) \
   bin/ycsb.sh load jdbc -s -P workloads/workloada ${y_tablename} \
   -p db.driver=$SRCDB_JDBC_DRIVER \
   -p db.url=$SRCDB_JDBC_URL \
@@ -166,15 +213,14 @@ load_ycsb() {
   -p insertorder=ordered \
   -p fieldcount=0 "${@}"
   
-  set +x
   popd >/dev/null
 }
 
 start_ycsb() {
   local y_tablename="-p table=${fq_table_name}"
   # run
-  set -x 
   pushd /opt/stage/ycsb/ycsb-jdbc-binding-0.18.0-SNAPSHOT/ >/dev/null
+  JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-* -maxdepth 0 ) \
   bin/ycsb.sh run jdbc -s -P workloads/workloada ${y_tablename} \
   -p db.driver=$SRCDB_JDBC_DRIVER \
   -p db.url=$SRCDB_JDBC_URL \
@@ -192,7 +238,6 @@ start_ycsb() {
   -threads 1 \
   -target 1 "${@}"
    
-  set +x
   popd >/dev/null
 }
 
@@ -209,9 +254,15 @@ wait_log() {
   done
 }
 
+run_arcion() {
+  # TODO: make this smarter
+  # java -version 2>&1 | head -n 1 | awk '{print $NF}'
+  JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-* -maxdepth 0 ) \
+  $ARCION_HOME/bin/$ARCION_BIN "$@"
+}
+
 # set JAVA_HOME ARCION_HOME ARCION_BIN
 replicant_or_replicate() {
-  export JAVA_HOME=${JAVA_HOME:-$( find /usr/lib/jvm/java-8-openjdk-*/jre -maxdepth 0)}
   export ARCION_HOME=${ARCION_HOME:-$( find /opt/stage/arcion -maxdepth 3 -name replicate -o -name replicant | sed 's|/bin/.*$||' | head -n 1)}
   
   if [ -x "$ARCION_HOME/bin/replicant" ]; then echo replicant; export ARCION_BIN=replicant; return 0; fi 
@@ -224,22 +275,9 @@ replicant_or_replicate() {
 # set ARCION_VERSION
 arcion_version() {
   replicant_or_replicate || return 1
-  export ARCION_VERSION="$($ARCION_HOME/bin/$ARCION_BIN version 2>/dev/null | grep Version | awk -F' ' '{print $NF}')"
+  export ARCION_VERSION="$(run_arcion version 2>/dev/null | grep Version | awk -F' ' '{print $NF}')"
   export ARCION_YYMM=$(echo $ARCION_VERSION | awk -F'.' '{print $1 "." $2}')
   echo "$ARCION_VERSION $ARCION_YYMM"
-}
-
-
-# fetch-schemas does not work on 23.05.31.29 and 23.05.31.31
-fetch_schema() {
-  replicant_or_replicate || return 1
-
-  set -x
-  $ARCION_HOME/bin/$ARCION_BIN fetch-schemas src_pdb_23.05.yaml \
-    --filter filter.yaml \
-    --output-file oracle_schema.yaml \
-    --fetch-row-count-estimate
-  set +x
 }
 
 # --clean-job
