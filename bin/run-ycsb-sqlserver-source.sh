@@ -10,8 +10,9 @@ sql_cli() {
   # -h-1 remove header and -----
   if [ ! -t 0 ]; then
     local sql_cli_batch_mode="-h-1"
+  else
+    sqlcmd -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -C $sql_cli_batch_mode "$@"
   fi
-  sqlcmd -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -C $sql_cli_batch_mode "$@"
 }
 
 sql_root_cli() {
@@ -28,17 +29,26 @@ jdbc_root_cli() {
   # -e echo sql commands
   # -n batch mode and don't save in history
   # -v don't print header and footer
-  if [ ! -t 0 ]; then
-    local batch_mode="-n -e -v headers=false -v footers=false"
+  if [ ! -t 0 ]; then 
+    local batch_mode="-n -v headers=false -v footers=false"
+    # this is to inject \set style=csv before the acqual sql
+    cat <(echo "\set style=csv") - | \
+      PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH \
+      CLASSPATH=$SRCDB_CLASSPATH:$CLASSPATH \
+      jsqsh ${batch_mode} --jdbc-class "$SRCDB_JDBC_DRIVER" \
+      --driver "$SRCDB_JSQSH_DRIVER" \
+      --jdbc-url "$SRCDB_JDBC_URL" \
+      --user "$SRCDB_ROOT_USER" \
+      --password "$SRCDB_ROOT_PW" "$@"
+  else
+    PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH \
+    CLASSPATH=$SRCDB_CLASSPATH:$CLASSPATH \
+    jsqsh ${batch_mode} --jdbc-class "$SRCDB_JDBC_DRIVER" \
+    --driver "$SRCDB_JSQSH_DRIVER" \
+    --jdbc-url "$SRCDB_JDBC_URL" \
+    --user "$SRCDB_ROOT_USER" \
+    --password "$SRCDB_ROOT_PW" "$@"
   fi
-
-  PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH \
-  CLASSPATH=$SRCDB_CLASSPATH:$CLASSPATH \
-  jsqsh ${batch_mode} --jdbc-class "$SRCDB_JDBC_DRIVER" \
-  --driver "$SRCDB_JSQSH_DRIVER" \
-  --jdbc-url "$SRCDB_JDBC_URL" \
-  --user "$SRCDB_ROOT_USER" \
-  --password "$SRCDB_ROOT_PW" "$@"
 }
 
 # -n -e for batch
@@ -49,15 +59,24 @@ jdbc_cli() {
   # -v don't print header and footer
   if [ ! -t 0 ]; then
     local batch_mode="-n -v headers=false -v footers=false"
-  fi
+    cat <(echo "\set style=csv") - | \
+      PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH \
+      CLASSPATH=$SRCDB_CLASSPATH:$CLASSPATH \
+      jsqsh ${batch_mode} --jdbc-class "$SRCDB_JDBC_DRIVER" \
+      --driver "$SRCDB_JSQSH_DRIVER" \
+      --jdbc-url "$SRCDB_JDBC_URL" \
+      --user "$SRCDB_ARC_USER" \
+      --password "$SRCDB_ARC_PW" "$@"
 
-  PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH \
-  CLASSPATH=$SRCDB_CLASSPATH:$CLASSPATH \
-  jsqsh ${batch_mode} --jdbc-class "$SRCDB_JDBC_DRIVER" \
-  --driver "$SRCDB_JSQSH_DRIVER" \
-  --jdbc-url "$SRCDB_JDBC_URL" \
-  --user "$SRCDB_ARC_USER" \
-  --password "$SRCDB_ARC_PW" "$@"
+  else
+    PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH \
+    CLASSPATH=$SRCDB_CLASSPATH:$CLASSPATH \
+    jsqsh ${batch_mode} --jdbc-class "$SRCDB_JDBC_DRIVER" \
+    --driver "$SRCDB_JSQSH_DRIVER" \
+    --jdbc-url "$SRCDB_JDBC_URL" \
+    --user "$SRCDB_ARC_USER" \
+    --password "$SRCDB_ARC_PW" "$@"
+  fi
 }
 
 # change this for the 
