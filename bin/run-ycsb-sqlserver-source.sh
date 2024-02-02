@@ -8,8 +8,13 @@ heredoc_file() {
 sql_cli() {
   # when stdin is redirected
   # -h-1 remove header and -----
+  # -W remove trailing spaces
+  # -s ","
+  # -w width of the screen
   if [ ! -t 0 ]; then
-    local sql_cli_batch_mode="-h-1"
+    local sql_cli_batch_mode="-h-1 -W -s , -w 1024"
+    cat <(echo "set NOCOUNT ON") - | \
+    sqlcmd -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -C $sql_cli_batch_mode "$@"
   else
     sqlcmd -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -C $sql_cli_batch_mode "$@"
   fi
@@ -18,10 +23,16 @@ sql_cli() {
 sql_root_cli() {
   # when stdin is redirected
   # -h-1 remove header and -----
+  # -W remove trailing spaces
+  # -s ","
+  # -w width of the screen
   if [ ! -t 0 ]; then
-    local sql_cli_batch_mode="-h-1"
+    local sql_cli_batch_mode="-h-1 -W -s , -w 1024"
+    cat <(echo "set NOCOUNT ON") - | \
+    sqlcmd -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ROOT_USER}" -P "${SRCDB_ROOT_PW}" -C $sql_cli_batch_mode "$@"
+  else
+    sqlcmd -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ROOT_USER}" -P "${SRCDB_ROOT_PW}" -C $sql_cli_batch_mode "$@"
   fi
-  sqlcmd -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ROOT_USER}" -P "${SRCDB_ROOT_PW}" -C $sql_cli_batch_mode "$@"
 }
 
 jdbc_root_cli() {
@@ -152,6 +163,13 @@ create_ycsb_table() {
   heredoc_file demo/sqlserver/sql/ycsb.sql | tee -a demo/sqlserver/config/ycsb.sql | sql_cli
 }
 
+list_tables() {
+  sql_cli <<EOF
+SELECT table_name, table_type FROM information_schema.tables where table_type in ('BASE TABLE','VIEW') and table_schema like '${SRCDB_SCHEMA:-%}' and table_catalog like '${SRCDB_ARC_USER:-%}' order by table_name
+go
+EOF
+}
+
 add_column_ycsb() {
   sql_cli <<EOF
 ALTER TABLE ${fq_table_name} ADD FIELD11 TEXT NULL
@@ -173,6 +191,7 @@ go
 EOF
 }
 
+# can't truncate if published for replication or enabled for Change Data Capture
 truncate_ycsb_table() {
   sql_cli <<EOF
 truncate TABLE ${fq_table_name}
