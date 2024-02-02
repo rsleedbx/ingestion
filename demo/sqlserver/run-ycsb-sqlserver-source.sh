@@ -1,8 +1,123 @@
 #!/usr/env/bin/bash
 
+PROG_DIR=$(dirname "${BASH_SOURCE[0]}")
+INITDB_LOG_DIR=${PROG_DIR}/config
+
+create_user() {
+  sql_root_cli <<EOF
+  CREATE LOGIN ${SRCDB_ARC_USER} WITH PASSWORD = '${SRCDB_ARC_PW}'
+  go
+  create database ${SRCDB_DB}
+  go
+  use ${SRCDB_DB}
+  go
+  CREATE USER ${SRCDB_ARC_USER} FOR LOGIN ${SRCDB_ARC_USER} WITH DEFAULT_SCHEMA=dbo
+  go
+  ALTER ROLE db_owner ADD MEMBER ${SRCDB_ARC_USER}
+  go
+  ALTER ROLE db_ddladmin ADD MEMBER ${SRCDB_ARC_USER}
+  go
+  alter user ${SRCDB_ARC_USER} with default_schema=dbo
+  go
+  ALTER LOGIN ${SRCDB_ARC_USER} WITH DEFAULT_DATABASE=[${SRCDB_DB}]
+  go
+  -- required for change tracking
+  ALTER DATABASE ${SRCDB_DB}
+  SET CHANGE_TRACKING = ON  
+  (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON) -- required for CDC
+  go
+  -- required for CDC
+  EXEC sys.sp_cdc_enable_db 
+  go
+EOF
+
+}
 # heredoc_file filename 
 heredoc_file() {
     eval "$( echo -e '#!/usr/bin/env bash\ncat << EOF_EOF_EOF' | cat - $1 <(echo -e '\nEOF_EOF_EOF') )"    
+}
+
+# 1=""
+sf_to_name() {
+    if [[ "${1}" = "1" ]]; then echo ""; else echo ${1}; fi
+}
+
+# https://learn.microsoft.com/en-us/sql/tools/bcp-utility?view=sql-server-ver16
+# bcp does not support pipe. materialize the file, then load
+
+load_dense_data() {
+    local SIZE_FACTOR=${1:-${SIZE_FACTOR:-1}}
+    local SIZE_FACTOR_NAME=$(sf_to_name $SIZE_FACTOR)
+    echo "Starting dense table $SIZE_FACTOR" 
+
+    # create table
+    heredoc_file ${PROG_DIR}/lib/03_densetable.sql | tee ${INITDB_LOG_DIR}/03_densetable.sql 
+    sql_cli < ${INITDB_LOG_DIR}/03_densetable.sql 
+
+    # prepare bulk loader
+    heredoc_file ${PROG_DIR}/lib/03_densetable.fmt | tee ${INITDB_LOG_DIR}/03_densetable.fmt
+
+    # prepare data file
+    datafile=$(mktemp -p $INITDB_LOG_DIR)
+    make_ycsb_dense_data $datafile ${SIZE_FACTOR}
+    
+    # run the bulk loader
+    # batch of 1M
+    # -u trust certifcate
+    time bcp YCSBDENSE${SIZE_FACTOR_NAME} in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d arcsrc -f ${INITDB_LOG_DIR}/03_densetable.fmt -b 100000 | tee ${INITDB_LOG_DIR}/03_densetable.log
+
+    # delete datafile
+    rm $datafile
+
+    echo "Finished dense table $SIZE_FACTOR" 
+}
+
+load_sparse_data() {
+    local SIZE_FACTOR=${1:-${SIZE_FACTOR:-1}}
+    local SIZE_FACTOR_NAME=$(sf_to_name $SIZE_FACTOR)
+    echo "Starting sparse table $SIZE_FACTOR" 
+
+    # create table
+    heredoc_file ${PROG_DIR}/lib/03_sparsetable.sql | tee ${INITDB_LOG_DIR}/03_sparsetable.sql 
+    sql_cli < ${INITDB_LOG_DIR}/03_sparsetable.sql 
+
+    # prepare bulk loader
+    heredoc_file ${PROG_DIR}/lib/03_sparsetable.fmt | tee ${INITDB_LOG_DIR}/03_sparsetable.fmt
+
+    # prepare data file
+    datafile=$(mktemp -p $INITDB_LOG_DIR)
+    make_ycsb_sparse_data $datafile ${SIZE_FACTOR}
+    
+    # run the bulk loader
+    # batch of 1M
+    # tablename=YCSBSPARSE${SIZE_FACTOR_NAME}
+    # -u trust certifcate
+    time bcp YCSBSPARSE${SIZE_FACTOR_NAME} in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d arcsrc -f ${INITDB_LOG_DIR}/03_sparsetable.fmt -b 1000000 | tee ${INITDB_LOG_DIR}/03_sparsetable.log
+
+    # delete datafile
+    rm $datafile   
+
+    echo "Finished sparse table $SIZE_FACTOR" 
+}
+
+make_ycsb_sparse_data() {
+    local datafile=${1:-$(mktemp -p $INITDB_LOG_DIR)}
+    local SIZE_FACTOR=${2:-${SIZE_FACTOR:-1}}
+
+    rm -rf $datafile >/dev/null 2>&1
+    #mkfifo ${datafile}
+    seq 0 $(( 1000000*${SIZE_FACTOR:-1} - 1 )) > ${datafile}
+}
+
+make_ycsb_dense_data() {
+    local datafile=${1:-$(mktemp -p $INITDB_LOG_DIR)}
+    local SIZE_FACTOR=${2:-${SIZE_FACTOR:-1}}
+
+    rm -rf $datafile >/dev/null 2>&1
+    #mkfifo ${datafile}
+    seq 0 $(( 100000*${SIZE_FACTOR:-1} - 1 )) | \
+        awk '{printf "%10d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d\n", \
+            $1,$1,$1,$1,$1,$1,$1,$1,$1,$1,$1}' > ${datafile}
 }
 
 sql_cli() {
@@ -62,7 +177,6 @@ jdbc_root_cli() {
   fi
 }
 
-# -n -e for batch
 jdbc_cli() {
   # when stdin is redirected
   # -e echo sql commands
@@ -117,7 +231,7 @@ port_db() {
     local port=${1:-1433}
 
     # jdbc params for ycsb and jsqsh
-    if [ -z "$(netstat -an | grep -i listen | grep 1433)" ]; then
+    if [ -n "$(netstat -an | grep -i listen | grep 1433)" ]; then
       export SRCDB_PORT=${port}
     else
       export SRCDB_PORT=$(podman port --all | grep "${port}/tcp" | head -n 1 | cut -d ":" -f 2)
@@ -156,7 +270,6 @@ EOF
     popd >/dev/null
 }
 
-# svc_name
 create_ycsb_table() {
     # -e echo the command
     # -n non-interactive mode 
