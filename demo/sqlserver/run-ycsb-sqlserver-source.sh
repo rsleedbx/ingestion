@@ -28,12 +28,12 @@ create_user() {
   ALTER LOGIN ${SRCDB_ARC_USER} WITH DEFAULT_DATABASE=[${SRCDB_DB}]
   go
   -- required for change tracking
-  ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = ON  
-  (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON) -- required for CDC
-  go
+  -- ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = ON  
+  -- (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON) -- required for CDC
+  -- go
   -- required for CDC
-  EXEC sys.sp_cdc_enable_db 
-  go
+  -- EXEC sys.sp_cdc_enable_db 
+  -- go
 EOF
 
 }
@@ -357,6 +357,9 @@ enable_cdc() {
 
   sql_root_cli <<EOF
   -- required for CDC
+  use ${SRCDB_DB}
+  go
+
   EXEC sys.sp_cdc_enable_db 
   go
 EOF
@@ -385,6 +388,7 @@ EXEC sys.sp_cdc_disable_table
 @source_schema = '${SRCDB_SCHEMA:-dbo}',  
 @source_name   = '$tablename',  
 @capture_instance = 'all'
+go
 EOF
   done
   if [ -s /tmp/disable_cdc.txt ]; then 
@@ -393,9 +397,12 @@ EOF
 
   sql_root_cli <<EOF
   -- required for CDC
+  use ${SRCDB_DB}
+  go
+
   EXEC sys.sp_cdc_disable_db 
   go
-EOF  
+EOF
 }
 
 enable_change_tracking() {
@@ -545,7 +552,7 @@ start_arcion() {
   local REPL_TYPE="${1:-"real-time"}"   # snapshot real-time full
   local YAML_DIR="${2:-"./yaml/change_tracking"}"
   local JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-*/jre -maxdepth 0)
-  set -x 
+
   $ARCION_HOME/bin/$ARCION_BIN "${REPL_TYPE}" \
     $(heredoc_file ${YAML_DIR}/src.yaml                     >config/src.yaml        | echo config/src.yaml) \
     $(heredoc_file ${YAML_DIR}/dst_null.yaml                >config/dst.yaml        | echo config/dst.yaml) \
@@ -553,9 +560,32 @@ start_arcion() {
     --extractor $(heredoc_file ${YAML_DIR}/extractor.yaml   >config/extractor.yaml  | echo config/extractor.yaml) \
     --filter $(heredoc_file ${YAML_DIR}/filter.yaml         >config/filter.yaml     | echo config/filter.yaml) \
     --applier $(heredoc_file ${YAML_DIR}/applier_null.yaml  >config/applier.yaml    | echo config/applier.yaml) \
-    --overwrite --id $$ --replace
-  set +x
+    --overwrite --id $$ --replace >$PROG_DIR/logs/arcion.log 2>&1 &
+  
+  ARCION_PID=$!
+  echo $ARCION_PID > $PROG_DIR/logs/arcion.pid
+  echo "arcion pid $ARCION_PID"  
+  echo "arcion log is at $PROG_DIR/logs/arcion.log"
+  echo "arcion can be killed with . ./demo/sqlserver/run-ycsb-sqlserver-source.sh; kill_recurse \$(cat \$PROG_DIR/logs/arcion.pid)"
+
 }
+
+start_change_tracking_arcion() {
+  replicant_or_replicate
+  local REPL_TYPE="${1:-"real-time"}"   # snapshot real-time full
+  local YAML_DIR="${2:-"./yaml/change_tracking"}"
+
+  start_arcion "$REPL_TYPE" "$YAML_DIR"
+}
+
+start_cdc_arcion() {
+  replicant_or_replicate
+  local REPL_TYPE="${1:-"real-time"}"   # snapshot real-time full
+  local YAML_DIR="${2:-"./yaml/cdc"}"
+  
+  start_arcion "$REPL_TYPE" "$YAML_DIR"
+}
+
 
 show_arcion_error() {
   ARCION_PID=$(cat /tmp/arcion.pid)

@@ -6,4 +6,4 @@ password: 'Passw0rd'
 database: 'arcsrc'
 max-connections: 5
 max-retries: 1
-extractor: CHANGE # {CHANGE|CDC|LOG}
+extractor: CDC # {CHANGE|CDC|LOG}
