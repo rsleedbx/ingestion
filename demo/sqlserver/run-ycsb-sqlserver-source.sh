@@ -1,7 +1,13 @@
 #!/usr/env/bin/bash
 
-PROG_DIR=$(dirname "${BASH_SOURCE[0]}")
+if [ -z "${BASH_SOURCE}" ]; then 
+  echo "Please invoke using bash" 
+  exit 1
+fi
+
+PROG_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 INITDB_LOG_DIR=${PROG_DIR}/config
+(return 0 2>/dev/null) && export SCRIPT_SOURCED=1 || export SCRIPT_SOURCED=0
 
 create_user() {
   sql_root_cli <<EOF
@@ -22,8 +28,7 @@ create_user() {
   ALTER LOGIN ${SRCDB_ARC_USER} WITH DEFAULT_DATABASE=[${SRCDB_DB}]
   go
   -- required for change tracking
-  ALTER DATABASE ${SRCDB_DB}
-  SET CHANGE_TRACKING = ON  
+  ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = ON  
   (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON) -- required for CDC
   go
   -- required for CDC
@@ -32,6 +37,19 @@ create_user() {
 EOF
 
 }
+
+#
+kill_recurse() {
+    if [ -z "${1}" ]; then return 0; fi
+
+    cpids=$(pgrep -P $1 | xargs)
+    for cpid in $cpids;
+    do
+        kill_recurse $cpid
+    done
+    kill -9 $1 2>/dev/null
+}
+
 # heredoc_file filename 
 heredoc_file() {
     eval "$( echo -e '#!/usr/bin/env bash\ncat << EOF_EOF_EOF' | cat - $1 <(echo -e '\nEOF_EOF_EOF') )"    
@@ -64,7 +82,7 @@ load_dense_data() {
     # run the bulk loader
     # batch of 1M
     # -u trust certifcate
-    time bcp YCSBDENSE${SIZE_FACTOR_NAME} in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d arcsrc -f ${INITDB_LOG_DIR}/03_densetable.fmt -b 100000 | tee ${INITDB_LOG_DIR}/03_densetable.log
+    time bcp YCSBDENSE${SIZE_FACTOR_NAME} in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d arcsrc -f ${INITDB_LOG_DIR}/03_densetable.fmt -b 10000 | tee ${INITDB_LOG_DIR}/03_densetable.log
 
     # delete datafile
     rm $datafile
@@ -115,7 +133,7 @@ make_ycsb_dense_data() {
 
     rm -rf $datafile >/dev/null 2>&1
     #mkfifo ${datafile}
-    seq 0 $(( 100000*${SIZE_FACTOR:-1} - 1 )) | \
+    seq 0 $(( 10000*${SIZE_FACTOR:-1} - 1 )) | \
         awk '{printf "%10d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d\n", \
             $1,$1,$1,$1,$1,$1,$1,$1,$1,$1,$1}' > ${datafile}
 }
@@ -283,14 +301,15 @@ go
 EOF
 }
 
+#
+#    -e replicate_io_audit_ddl \
+#    -e replicate_io_audit_tbl_cons \
+#    -e replicate_io_audit_tbl_schema \
+#    -e REPLICATE_IO_CDC_HEARTBEAT \
 list_regular_tables() {
   list_tables | \
   awk -F ',' '{print $1}' | \
   grep -v -e MSchange_tracking_history \
-    -e replicate_io_audit_ddl \
-    -e replicate_io_audit_tbl_cons \
-    -e replicate_io_audit_tbl_schema \
-    -e REPLICATE_IO_CDC_HEARTBEAT \
     -e systranschemas 
 }
 
@@ -333,7 +352,14 @@ EOF
 }
 
 enable_cdc() {
+
   rm /tmp/enable_cdc.txt 2>/dev/null
+
+  sql_root_cli <<EOF
+  -- required for CDC
+  EXEC sys.sp_cdc_enable_db 
+  go
+EOF
 
   list_regular_tables | while read tablename; do
     cat >>/tmp/enable_cdc.txt <<EOF
@@ -350,6 +376,7 @@ EOF
 }
 
 disable_cdc() {
+
   rm /tmp/disable_cdc.txt 2>/dev/null
 
   list_regular_tables | while read tablename; do
@@ -363,11 +390,27 @@ EOF
   if [ -s /tmp/disable_cdc.txt ]; then 
     cat /tmp/disable_cdc.txt | sql_cli
   fi
+
+  sql_root_cli <<EOF
+  -- required for CDC
+  EXEC sys.sp_cdc_disable_db 
+  go
+EOF  
 }
 
 enable_change_tracking() {
   rm /tmp/enable_change_tracking.txt 2>/dev/null
 
+  sql_root_cli <<EOF
+  -- required for change tracking
+  ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = ON  
+  (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON) -- required for CDC
+  go
+EOF
+
+  cat ${PROG_DIR}/sql/change_tracking/change_tracking.sql | sql_cli -I
+
+  # build a list of tables to enable
   list_regular_tables | while read tablename; do  
 cat >>/tmp/enable_change_tracking.txt <<EOF
 ALTER TABLE ${tablename} ENABLE CHANGE_TRACKING
@@ -391,6 +434,14 @@ EOF
   if [ -s /tmp/disable_change_tracking.txt ]; then 
     cat /tmp/disable_change_tracking.txt | sql_cli
   fi
+
+
+  sql_root_cli <<EOF
+  -- required for change tracking
+  ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = OFF  
+  go
+EOF
+
 }
 
 load_ycsb() {
@@ -439,8 +490,13 @@ start_ycsb() {
   -p jdbc.ycsbkeyprefix=false \
   -p insertorder=ordered \
   -threads 1 \
-  -target 1 "${@}"
-   
+  -target 1 "${@}" >$PROG_DIR/logs/ycsb.log 2>&1 &
+  
+  YCSB_PID=$!
+  echo $YCSB_PID > $PROG_DIR/logs/ycsb.pid
+  echo "ycsb pid $YCSB_PID"  
+  echo "ycsb log is at $PROG_DIR/logs/ycsb.log"
+  echo "ycsb can be killed with . ./demo/sqlserver/run-ycsb-sqlserver-source.sh; kill_recurse \$(cat \$PROG_DIR/logs/ycsb.pid)"
   popd >/dev/null
 }
 
@@ -486,12 +542,11 @@ arcion_version() {
 # --clean-job
 start_arcion() {
   replicant_or_replicate
-  local YAML_DIR="${1:-"./yaml/change_tracking"}"
-  local REPL_TYPE="${2:-"real-time"}"   # snapshot real-time full
+  local REPL_TYPE="${1:-"real-time"}"   # snapshot real-time full
+  local YAML_DIR="${2:-"./yaml/change_tracking"}"
   local JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-*/jre -maxdepth 0)
   set -x 
-  $ARCION_HOME/bin/$ARCION_BIN \
-    ${REPL_TYPE} \
+  $ARCION_HOME/bin/$ARCION_BIN "${REPL_TYPE}" \
     $(heredoc_file ${YAML_DIR}/src.yaml                     >config/src.yaml        | echo config/src.yaml) \
     $(heredoc_file ${YAML_DIR}/dst_null.yaml                >config/dst.yaml        | echo config/dst.yaml) \
     --general $(heredoc_file ${YAML_DIR}/general.yaml       >config/general.yaml    | echo config/general.yaml) \
@@ -540,6 +595,5 @@ restart_ycsb() {
       fi 
   done
 }
-
 
 port_db

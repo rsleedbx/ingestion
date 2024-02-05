@@ -1,9 +1,9 @@
 type: SQLSERVER
 host: '127.0.0.1'
-port: 33173
+port: 1433
 username: 'arcsrc'
 password: 'Passw0rd'
 database: 'arcsrc'
 max-connections: 5
 max-retries: 1
-extractor: CDC # {CHANGE|CDC|LOG}
+extractor: CHANGE # {CHANGE|CDC|LOG}
