@@ -571,7 +571,6 @@ start_arcion() {
 }
 
 start_change_tracking_arcion() {
-  replicant_or_replicate
   local REPL_TYPE="${1:-"real-time"}"   # snapshot real-time full
   local YAML_DIR="${2:-"./yaml/change_tracking"}"
 
@@ -579,7 +578,6 @@ start_change_tracking_arcion() {
 }
 
 start_cdc_arcion() {
-  replicant_or_replicate
   local REPL_TYPE="${1:-"real-time"}"   # snapshot real-time full
   local YAML_DIR="${2:-"./yaml/cdc"}"
   
