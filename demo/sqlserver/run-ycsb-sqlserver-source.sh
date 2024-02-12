@@ -359,22 +359,29 @@ enable_cdc() {
 
   rm /tmp/enable_cdc.txt 2>/dev/null
 
+  echo "enable cdc on database ${SRCDB_DB}"
   sql_root_cli <<EOF
   -- required for CDC
   use ${SRCDB_DB}
   go
 
+if not exists (select name from sys.databases where is_cdc_enabled = 1 and name in ('${SRCDB_DB}'))
   EXEC sys.sp_cdc_enable_db 
   go
 EOF
 
   list_regular_tables | while read tablename; do
+  echo "enable cdc on table ${tablename}"
     cat >>/tmp/enable_cdc.txt <<EOF
-EXEC sys.sp_cdc_enable_table  
-@source_schema = '${SRCDB_SCHEMA:-dbo}',  
-@source_name   = '$tablename',  
-@role_name     = NULL,  
-@supports_net_changes = 0
+if not exists (select t.name as table_name, s.name as schema_name, t.is_tracked_by_cdc 
+  from sys.tables t
+  left join sys.schemas s on t.schema_id = s.schema_id
+  where t.name in ('$tablename') and t.is_tracked_by_cdc=1)
+  EXEC sys.sp_cdc_enable_table  
+  @source_schema = '${SRCDB_SCHEMA:-dbo}',  
+  @source_name   = '$tablename',  
+  @role_name     = NULL,  
+  @supports_net_changes = 0
 EOF
   done
   if [ -s /tmp/enable_cdc.txt ]; then 
@@ -387,8 +394,13 @@ disable_cdc() {
   rm /tmp/disable_cdc.txt 2>/dev/null
 
   list_regular_tables | while read tablename; do
-    cat >>/tmp/disable_cdc.txt <<EOF
-EXEC sys.sp_cdc_disable_table  
+    echo "disable cdc on table ${tablename}"
+    cat >>/tmp/disable_cdc.txt <<EOF   
+if exists (select t.name as table_name, s.name as schema_name, t.is_tracked_by_cdc 
+    from sys.tables t
+    left join sys.schemas s on t.schema_id = s.schema_id
+    where t.name in ('$tablename') and t.is_tracked_by_cdc=1)
+  EXEC sys.sp_cdc_disable_table  
 @source_schema = '${SRCDB_SCHEMA:-dbo}',  
 @source_name   = '$tablename',  
 @capture_instance = 'all'
@@ -399,12 +411,14 @@ EOF
     cat /tmp/disable_cdc.txt | sql_cli
   fi
 
+  echo "disable cdc on database ${SRCDB_DB}"
   sql_root_cli <<EOF
   -- required for CDC
   use ${SRCDB_DB}
   go
 
-  EXEC sys.sp_cdc_disable_db 
+  if exists (select name from sys.databases where is_cdc_enabled = 1 and name in ('${SRCDB_DB}'))
+    EXEC sys.sp_cdc_disable_db 
   go
 EOF
 }

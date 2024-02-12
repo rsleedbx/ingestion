@@ -5,8 +5,6 @@ snapshot:
   _fetch-exact-row-count: false    
     
   min-job-size-rows: 100_000 # default 1_000_000 is too large for purposes demo
-  ddl-replication:
-    enable: true
 
 realtime:
   threads: 1
@@ -14,8 +12,8 @@ realtime:
   # enable DDL replication
   ddl-replication:
     enable: true
-    catalog: arcsrc
-    schema:  dbo
+    catalog: "arcsrc"
+    schema: "dbo"
     detect-ddl-interval: 1   # default 600 is too long for demo wait
     ddl-replication-mode: INLINE # Default is REINIT mode. [REINIT|INLINE]
   # replicate_io_cdc_heartbeat table at arcsrc database instead of default io_replication 
