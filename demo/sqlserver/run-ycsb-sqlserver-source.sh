@@ -521,34 +521,37 @@ load_ycsb() {
 }
 
 start_ycsb() {
-  local y_tablename="-p table=${fq_table_name}"
-  # run
+  readarray -d ',' -t tablenames_array <<< "${fq_table_names:-ycsbdense,ycsbsparse}"
   pushd /opt/stage/ycsb/ycsb-jdbc-binding-0.18.0-SNAPSHOT/ >/dev/null
-  JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-* -maxdepth 0 ) \
-  bin/ycsb.sh run jdbc -s -P workloads/workloada ${y_tablename} \
-  -p db.driver=$SRCDB_JDBC_DRIVER \
-  -p db.url=$SRCDB_JDBC_URL \
-  -p db.user="$SRCDB_ARC_USER" \
-  -p db.passwd="$SRCDB_ARC_PW" \
-  -p db.urlsharddelim='___' \
-  -p jdbc.autocommit=true \
-  -p jdbc.fetchsize=10 \
-  -p db.batchsize=1000 \
-  -p recordcount=100000 \
-  -p operationcount=10000000 \
-  -p jdbc.batchupdateapi=true \
-  -p jdbc.ycsbkeyprefix=false \
-  -p insertorder=ordered \
-  -threads 1 \
-  -target 1 "${@}" >$PROG_DIR/logs/ycsb.log 2>&1 &
-  
-  YCSB_PID=$!
-  echo $YCSB_PID > $PROG_DIR/logs/ycsb.pid
-  echo "ycsb pid $YCSB_PID"  
-  echo "ycsb log is at $PROG_DIR/logs/ycsb.log"
-  echo "ycsb can be killed with . ./demo/sqlserver/run-ycsb-sqlserver-source.sh; kill_recurse \$(cat \$PROG_DIR/logs/ycsb.pid)"
-  popd >/dev/null
-}
+  for tablename in ${y_tablenames_array[*]}; do
+    # run
+    JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-* -maxdepth 0 ) \
+    bin/ycsb.sh run jdbc -s -P workloads/workloada -p table=${tablename} \
+    -p db.driver=$SRCDB_JDBC_DRIVER \
+    -p db.url=$SRCDB_JDBC_URL \
+    -p db.user="$SRCDB_ARC_USER" \
+    -p db.passwd="$SRCDB_ARC_PW" \
+    -p db.urlsharddelim='___' \
+    -p jdbc.autocommit=true \
+    -p jdbc.fetchsize=10 \
+    -p db.batchsize=1000 \
+    -p recordcount=100000 \
+    -p operationcount=10000000 \
+    -p jdbc.batchupdateapi=true \
+    -p jdbc.ycsbkeyprefix=false \
+    -p insertorder=ordered \
+    -threads ${y_threads:-1} \
+    -target ${y_target:-1} "${@}" >$PROG_DIR/logs/ycsb.$tablename.log 2>&1 &
+    
+    YCSB_PID=$!
+    echo $YCSB_PID > $PROG_DIR/logs/ycsb.$tablename.pid
+    echo "ycsb $tablename pid $YCSB_PID"  
+    echo "ycsb $tablename log is at $PROG_DIR/logs/ycsb.$tablename.log"
+    echo "ycsb $tablename can be killed with . ./demo/sqlserver/run-ycsb-sqlserver-source.sh; kill_recurse \$(cat \$PROG_DIR/logs/ycsb.$tablename.pid)"
+    done
+    popd >/dev/null
+
+  }
 
 
 # wait for the log file to exist before running tail
