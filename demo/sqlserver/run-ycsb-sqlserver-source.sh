@@ -140,6 +140,7 @@ make_ycsb_dense_data() {
 
 sql_cli() {
   # when stdin is redirected
+  # -I enable quite identified
   # -h-1 remove header and -----
   # -W remove trailing spaces
   # -s ","
@@ -147,14 +148,15 @@ sql_cli() {
   if [ ! -t 0 ]; then
     local sql_cli_batch_mode="-h-1 -W -s , -w 1024"
     cat <(echo "set NOCOUNT ON") - | \
-    sqlcmd -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -C $sql_cli_batch_mode "$@"
+    sqlcmd -I -d "$SRCDB_DB" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -C $sql_cli_batch_mode "$@"
   else
-    sqlcmd -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -C $sql_cli_batch_mode "$@"
+    sqlcmd -I -d "$SRCDB_DB" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -C $sql_cli_batch_mode "$@"
   fi
 }
 
 sql_root_cli() {
   # when stdin is redirected
+  # -I enable quite identified
   # -h-1 remove header and -----
   # -W remove trailing spaces
   # -s ","
@@ -162,9 +164,9 @@ sql_root_cli() {
   if [ ! -t 0 ]; then
     local sql_cli_batch_mode="-h-1 -W -s , -w 1024"
     cat <(echo "set NOCOUNT ON") - | \
-    sqlcmd -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ROOT_USER}" -P "${SRCDB_ROOT_PW}" -C $sql_cli_batch_mode "$@"
+    sqlcmd -I -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ROOT_USER}" -P "${SRCDB_ROOT_PW}" -C $sql_cli_batch_mode "$@"
   else
-    sqlcmd -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ROOT_USER}" -P "${SRCDB_ROOT_PW}" -C $sql_cli_batch_mode "$@"
+    sqlcmd -I -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ROOT_USER}" -P "${SRCDB_ROOT_PW}" -C $sql_cli_batch_mode "$@"
   fi
 }
 
@@ -209,7 +211,8 @@ jdbc_cli() {
       --driver "$SRCDB_JSQSH_DRIVER" \
       --jdbc-url "$SRCDB_JDBC_URL" \
       --user "$SRCDB_ARC_USER" \
-      --password "$SRCDB_ARC_PW" "$@"
+      --password "$SRCDB_ARC_PW" \
+      --database "$SRCDB_DB" "$@"
 
   else
     PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH \
@@ -218,7 +221,8 @@ jdbc_cli() {
     --driver "$SRCDB_JSQSH_DRIVER" \
     --jdbc-url "$SRCDB_JDBC_URL" \
     --user "$SRCDB_ARC_USER" \
-    --password "$SRCDB_ARC_PW" "$@"
+    --password "$SRCDB_ARC_PW" \
+    --database "$SRCDB_DB" "$@"
   fi
 }
 
@@ -408,19 +412,27 @@ EOF
 enable_change_tracking() {
   rm /tmp/enable_change_tracking.txt 2>/dev/null
 
+  echo "enable change tracking on database ${SRCDB_DB}"
   sql_root_cli <<EOF
   -- required for change tracking
+IF NOT EXISTS (select database_id from sys.change_tracking_databases  where database_id=DB_ID('${SRCDB_DB}'))  
   ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = ON  
   (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON) -- required for CDC
   go
 EOF
 
-  cat ${PROG_DIR}/sql/change_tracking/change_tracking.sql | sql_cli -I
+  echo "enable DDL tracking"
+  cat ${PROG_DIR}/sql/change_tracking/change_tracking.sql | sql_cli
 
   # build a list of tables to enable
   list_regular_tables | while read tablename; do  
+  echo "enable change tracking on ${tablename}" 
 cat >>/tmp/enable_change_tracking.txt <<EOF
-ALTER TABLE ${tablename} ENABLE CHANGE_TRACKING
+IF NOT EXISTS (select t.name 
+    from sys.change_tracking_tables i
+    left join sys.tables t
+    on i.object_id = t.object_id where t.name='${tablename}')  
+  ALTER TABLE ${tablename} ENABLE CHANGE_TRACKING
 go  
 EOF
   done
@@ -432,9 +444,25 @@ EOF
 disable_change_tracking() {
   rm /tmp/disable_change_tracking.txt 2>/dev/null
 
+  echo "disable/drop trigger replicate_io_audit_ddl_trigger"
+  cat <<EOF | sql_cli
+IF EXISTS (select name from sys.all_sql_modules m inner join sys.triggers t on m.object_id = t.object_id where name='replicate_io_audit_ddl_trigger')
+  DISABLE TRIGGER "replicate_io_audit_ddl_trigger" ON DATABASE
+go
+
+IF EXISTS (select name from sys.all_sql_modules m inner join sys.triggers t on m.object_id = t.object_id where name='replicate_io_audit_ddl_trigger')
+  drop trigger "replicate_io_audit_ddl_trigger" on DATABASE
+go
+EOF
+
   list_regular_tables | while read tablename; do  
+  echo "disable tracking on ${tablename}" 
 cat >>/tmp/disable_change_tracking.txt <<EOF
-ALTER TABLE ${tablename} DISABLE CHANGE_TRACKING
+IF EXISTS (select t.name 
+    from sys.change_tracking_tables i
+    left join sys.tables t
+    on i.object_id = t.object_id where t.name='${tablename}')
+  ALTER TABLE ${tablename} DISABLE CHANGE_TRACKING
 go  
 EOF
   done
@@ -442,9 +470,10 @@ EOF
     cat /tmp/disable_change_tracking.txt | sql_cli
   fi
 
-
+  echo "disable change tracking on database ${SRCDB_DB}" 
   sql_root_cli <<EOF
   -- required for change tracking
+IF EXISTS (select database_id from sys.change_tracking_databases  where database_id=DB_ID('${SRCDB_DB}'))  
   ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = OFF  
   go
 EOF
@@ -623,5 +652,42 @@ restart_ycsb() {
       fi 
   done
 }
+
+status_database() {
+
+cat <<EOF | jdbc_root_cli
+
+-- show catalog
+select name, suser_sname(owner_sid) "owner_name", is_cdc_enabled, is_change_feed_enabled, is_published, is_encrypted from sys.databases
+where name in ('arcsrc')
+go
+
+
+-- sql server agent 4,running
+SELECT dss.[status], dss.[status_desc]
+FROM   sys.dm_server_services dss
+WHERE  dss.[servicename] LIKE N'SQL Server Agent (%';
+GO
+
+
+-- table qualifier
+-- show tables in cdc
+select t.name as table_name, s.name as schema_name, t.is_tracked_by_cdc 
+from sys.tables t
+left join sys.schemas s on t.schema_id = s.schema_id
+where t.name in ('ycsbsparse')
+go
+
+-- show tables in change tracking
+select i.*,t.name 
+from sys.change_tracking_tables i
+left join sys.tables t
+on i.object_id = t.object_id 
+go
+
+EOF
+
+}
+
 
 port_db
