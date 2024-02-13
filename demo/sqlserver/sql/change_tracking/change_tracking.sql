@@ -2,8 +2,9 @@
 SET QUOTED_IDENTIFIER ON;
 GO
 
+-- don't expect many entries so delete.  truncate does not work when cdc is enabled
 if exists (select name from sysobjects where name='replicate_io_audit_ddl' and xtype='U')
-    truncate table replicate_io_audit_ddl
+    delete from replicate_io_audit_ddl
 go 
 
 if not exists (select name from sysobjects where name='replicate_io_audit_ddl' and xtype='U')

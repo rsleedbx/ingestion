@@ -5,3 +5,5 @@ allow:
   allow:
   block: [replicate_io_audit_ddl, replicate_io_audit_tbl_schema, replicate_io_audit_tbl_cons, REPLICATE_IO_CDC_HEARTBEAT, ]
 
+
+

@@ -362,26 +362,35 @@ enable_cdc() {
   echo "enable cdc on database ${SRCDB_DB}"
   sql_root_cli <<EOF
   -- required for CDC
-  use ${SRCDB_DB}
-  go
 
 if not exists (select name from sys.databases where is_cdc_enabled = 1 and name in ('${SRCDB_DB}'))
-  EXEC sys.sp_cdc_enable_db 
-  go
+  begin
+    select 'EXEC sys.sp_cdc_enable_db;';  
+    use ${SRCDB_DB};
+    EXEC sys.sp_cdc_enable_db; 
+  end
+else
+  select 'skip EXEC sys.sp_cdc_enable_db;';  
 EOF
 
+  # enable cdc on table ${tablename}
   list_regular_tables | while read tablename; do
-  echo "enable cdc on table ${tablename}"
     cat >>/tmp/enable_cdc.txt <<EOF
 if not exists (select t.name as table_name, s.name as schema_name, t.is_tracked_by_cdc 
   from sys.tables t
   left join sys.schemas s on t.schema_id = s.schema_id
   where t.name in ('$tablename') and t.is_tracked_by_cdc=1)
-  EXEC sys.sp_cdc_enable_table  
-  @source_schema = '${SRCDB_SCHEMA:-dbo}',  
-  @source_name   = '$tablename',  
-  @role_name     = NULL,  
-  @supports_net_changes = 0
+  begin
+    select 'EXEC sys.sp_cdc_enable_table  @source_schema = ${SRCDB_SCHEMA:-dbo}, @source_name = $tablename,  @role_name = NULL, @supports_net_changes = 0;';
+
+    EXEC sys.sp_cdc_enable_table  
+    @source_schema = '${SRCDB_SCHEMA:-dbo}',  
+    @source_name   = '$tablename',  
+    @role_name     = NULL,  
+    @supports_net_changes = 0;
+  end
+else
+    select 'skip EXEC sys.sp_cdc_enable_table  @source_schema = ${SRCDB_SCHEMA:-dbo}, @source_name = $tablename,  @role_name = NULL, @supports_net_changes = 0;';
 EOF
   done
   if [ -s /tmp/enable_cdc.txt ]; then 
@@ -393,33 +402,38 @@ disable_cdc() {
 
   rm /tmp/disable_cdc.txt 2>/dev/null
 
+  # disable cdc on table ${tablename}
   list_regular_tables | while read tablename; do
-    echo "disable cdc on table ${tablename}"
     cat >>/tmp/disable_cdc.txt <<EOF   
 if exists (select t.name as table_name, s.name as schema_name, t.is_tracked_by_cdc 
     from sys.tables t
     left join sys.schemas s on t.schema_id = s.schema_id
     where t.name in ('$tablename') and t.is_tracked_by_cdc=1)
-  EXEC sys.sp_cdc_disable_table  
-@source_schema = '${SRCDB_SCHEMA:-dbo}',  
-@source_name   = '$tablename',  
-@capture_instance = 'all'
-go
+  begin
+    select 'EXEC sys.sp_cdc_disable_table @source_schema=${SRCDB_SCHEMA:-dbo},@source_name=$tablename, @capture_instance=all;'
+    EXEC sys.sp_cdc_disable_table  
+      @source_schema = '${SRCDB_SCHEMA:-dbo}',  
+      @source_name   = '$tablename',  
+      @capture_instance = 'all'
+  end
+else
+    select 'skip EXEC sys.sp_cdc_disable_table @source_schema=${SRCDB_SCHEMA:-dbo},@source_name=$tablename, @capture_instance=all;'
 EOF
   done
   if [ -s /tmp/disable_cdc.txt ]; then 
     cat /tmp/disable_cdc.txt | sql_cli
   fi
 
-  echo "disable cdc on database ${SRCDB_DB}"
+  # disable cdc on database ${SRCDB_DB}
   sql_root_cli <<EOF
-  -- required for CDC
-  use ${SRCDB_DB}
-  go
-
   if exists (select name from sys.databases where is_cdc_enabled = 1 and name in ('${SRCDB_DB}'))
-    EXEC sys.sp_cdc_disable_db 
-  go
+    begin
+      select 'EXEC sys.sp_cdc_disable_db;'; 
+      use ${SRCDB_DB};
+      EXEC sys.sp_cdc_disable_db;
+    end 
+  else
+    select 'skip EXEC sys.sp_cdc_disable_db;'; 
 EOF
 }
 
@@ -430,24 +444,30 @@ enable_change_tracking() {
   sql_root_cli <<EOF
   -- required for change tracking
 IF NOT EXISTS (select database_id from sys.change_tracking_databases  where database_id=DB_ID('${SRCDB_DB}'))  
-  ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = ON  
-  (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON) -- required for CDC
-  go
+  begin
+    select 'ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = ON  (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON);';
+    ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = ON  (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON);
+  end
+else
+    select 'skip ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = ON  (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON);';
 EOF
 
-  echo "enable DDL tracking"
+  # "enable DDL tracking"
   cat ${PROG_DIR}/sql/change_tracking/change_tracking.sql | sql_cli
 
   # build a list of tables to enable
   list_regular_tables | while read tablename; do  
-  echo "enable change tracking on ${tablename}" 
 cat >>/tmp/enable_change_tracking.txt <<EOF
 IF NOT EXISTS (select t.name 
     from sys.change_tracking_tables i
     left join sys.tables t
     on i.object_id = t.object_id where t.name='${tablename}')  
-  ALTER TABLE ${tablename} ENABLE CHANGE_TRACKING
-go  
+  begin
+    select 'ALTER TABLE ${tablename} ENABLE CHANGE_TRACKING;';
+    ALTER TABLE ${tablename} ENABLE CHANGE_TRACKING;
+  end
+else
+    select 'skip ALTER TABLE ${tablename} ENABLE CHANGE_TRACKING;';
 EOF
   done
   if [ -s /tmp/enable_change_tracking.txt ]; then 
@@ -461,35 +481,52 @@ disable_change_tracking() {
   echo "disable/drop trigger replicate_io_audit_ddl_trigger"
   cat <<EOF | sql_cli
 IF EXISTS (select name from sys.all_sql_modules m inner join sys.triggers t on m.object_id = t.object_id where name='replicate_io_audit_ddl_trigger')
-  DISABLE TRIGGER "replicate_io_audit_ddl_trigger" ON DATABASE
-go
+  begin
+    select 'DISABLE TRIGGER "replicate_io_audit_ddl_trigger" ON DATABASE';
+    DISABLE TRIGGER "replicate_io_audit_ddl_trigger" ON DATABASE;
+  end
+else
+    select 'skip DISABLE TRIGGER "replicate_io_audit_ddl_trigger" ON DATABASE';
+
 
 IF EXISTS (select name from sys.all_sql_modules m inner join sys.triggers t on m.object_id = t.object_id where name='replicate_io_audit_ddl_trigger')
-  drop trigger "replicate_io_audit_ddl_trigger" on DATABASE
-go
+  begin
+    select 'drop trigger "replicate_io_audit_ddl_trigger" on DATABASE';
+    drop trigger "replicate_io_audit_ddl_trigger" on DATABASE;
+  end
+else
+    select 'skip drop trigger "replicate_io_audit_ddl_trigger" on DATABASE';
 EOF
 
+  # disable tracking on regular_tables
   list_regular_tables | while read tablename; do  
-  echo "disable tracking on ${tablename}" 
 cat >>/tmp/disable_change_tracking.txt <<EOF
 IF EXISTS (select t.name 
     from sys.change_tracking_tables i
     left join sys.tables t
     on i.object_id = t.object_id where t.name='${tablename}')
-  ALTER TABLE ${tablename} DISABLE CHANGE_TRACKING
-go  
+  begin
+    select 'ALTER TABLE ${tablename} DISABLE CHANGE_TRACKING';
+    ALTER TABLE ${tablename} DISABLE CHANGE_TRACKING;
+  end
+else
+    select 'skip ALTER TABLE ${tablename} DISABLE CHANGE_TRACKING';
 EOF
   done
   if [ -s /tmp/disable_change_tracking.txt ]; then 
     cat /tmp/disable_change_tracking.txt | sql_cli
   fi
 
-  echo "disable change tracking on database ${SRCDB_DB}" 
+  # disable change tracking on database ${SRCDB_DB} 
   sql_root_cli <<EOF
   -- required for change tracking
 IF EXISTS (select database_id from sys.change_tracking_databases  where database_id=DB_ID('${SRCDB_DB}'))  
-  ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = OFF  
-  go
+  begin
+    select 'ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = OFF';
+    ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = OFF;
+  end
+else
+  select 'change tracking on database already disabled';
 EOF
 
 }
@@ -523,7 +560,8 @@ load_ycsb() {
 start_ycsb() {
   readarray -d ',' -t tablenames_array <<< "${fq_table_names:-ycsbdense,ycsbsparse}"
   pushd /opt/stage/ycsb/ycsb-jdbc-binding-0.18.0-SNAPSHOT/ >/dev/null
-  for tablename in ${y_tablenames_array[*]}; do
+  for tablename in ${tablenames_array[*]}; do
+    echo $tablename
     # run
     JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-* -maxdepth 0 ) \
     bin/ycsb.sh run jdbc -s -P workloads/workloada -p table=${tablename} \
