@@ -13,7 +13,7 @@ realtime:
   _traceDBTasks: true
   # enable DDL replication
   ddl-replication:
-    enable: true
+    enable: false
     catalog: arcsrc
     schema:  dbo
     detect-ddl-interval: 1   # default 600 is too long for demo wait

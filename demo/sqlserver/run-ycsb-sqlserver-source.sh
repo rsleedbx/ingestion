@@ -131,11 +131,18 @@ make_ycsb_dense_data() {
     local datafile=${1:-$(mktemp -p $INITDB_LOG_DIR)}
     local SIZE_FACTOR=${2:-${SIZE_FACTOR:-1}}
 
+
     rm -rf $datafile >/dev/null 2>&1
     #mkfifo ${datafile}
+    # hardcoded data dense generator
+    # seq 0 $(( 10000*${SIZE_FACTOR:-1} - 1 )) | \
+    #    awk '{printf "%10d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d\n", \
+    #        $1,$1,$1,$1,$1,$1,$1,$1,$1,$1,$1}' > ${datafile}
+
+    local y_fieldcount=${y_fieldcount:-10}
+    local y_fieldlength=${y_fieldlength:-100}
     seq 0 $(( 10000*${SIZE_FACTOR:-1} - 1 )) | \
-        awk '{printf "%10d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d\n", \
-            $1,$1,$1,$1,$1,$1,$1,$1,$1,$1,$1}' > ${datafile}
+        awk "{printf \"%10d\",\$1; for (i=1;i<=${y_fieldcount};i++) printf \",%0${y_field_length}d\",\$1; printf \"\n\"}" > ${datafile}
 }
 
 sql_cli() {
@@ -453,7 +460,7 @@ else
 EOF
 
   # "enable DDL tracking"
-  cat ${PROG_DIR}/sql/change_tracking/change_tracking.sql | sql_cli
+  cat ${PROG_DIR}/sql/change/change.sql | sql_cli
 
   # build a list of tables to enable
   list_regular_tables | while read tablename; do  
@@ -557,17 +564,31 @@ load_ycsb() {
   popd >/dev/null
 }
 
+var_name() {
+  local name=$1
+  local table=$2
+  local var_name
+  var_name=y_${name}_${table}
+  if [ -z "${!var_name}" ]; then var_name=y_$name; fi
+  echo "${var_name}"
+}
+
 # fq_table_names
-# y_threads:-1
-# y_target:-1
+# y_threads:-1 or y_threads_dense y_threads_sparse 
+# y_target:-1 or y_target_dense y_target_sparse
 start_ycsb() {
-  readarray -d ',' -t tablenames_array <<< "${fq_table_names:-ycsbdense,ycsbsparse}"
+
+  readarray -d ',' -t tablenames_array <<< "${fq_table_names:-dense,sparse}"
   pushd /opt/stage/ycsb/ycsb-jdbc-binding-0.18.0-SNAPSHOT/ >/dev/null
   for tablename in ${tablenames_array[*]}; do
     echo $tablename
+
+    local _y_threads=$(var_name "threads" "$tablename")
+    local _y_target=$(var_name "target" "$tablename")
+
     # run
     JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-* -maxdepth 0 ) \
-    bin/ycsb.sh run jdbc -s -P workloads/workloada -p table=${tablename} \
+    bin/ycsb.sh run jdbc -s -P workloads/workloada -p table=ycsb${tablename} \
     -p db.driver=$SRCDB_JDBC_DRIVER \
     -p db.url=$SRCDB_JDBC_URL \
     -p db.user="$SRCDB_ARC_USER" \
@@ -581,8 +602,8 @@ start_ycsb() {
     -p jdbc.batchupdateapi=true \
     -p jdbc.ycsbkeyprefix=false \
     -p insertorder=ordered \
-    -threads ${y_threads:-1} \
-    -target ${y_target:-1} "${@}" >$PROG_DIR/logs/ycsb.$tablename.log 2>&1 &
+    -threads ${!_y_threads:-1} \
+    -target ${!_y_target:-1} "${@}" >$PROG_DIR/logs/ycsb.$tablename.log 2>&1 &
     
     YCSB_PID=$!
     echo $YCSB_PID > $PROG_DIR/logs/ycsb.$tablename.pid
@@ -635,11 +656,11 @@ arcion_version() {
 
 # --clean-job
 # a_repltype:-"real-time"
-# a_yamldir:-"./yaml/change_tracking"
+# a_yamldir:-"./yaml/change"
 start_arcion() {
   replicant_or_replicate
   local a_repltype="${a_repltype:-"real-time"}"   # snapshot real-time full
-  local a_yamldir="${a_yamldir:-"./yaml/change_tracking"}"
+  local a_yamldir="${a_yamldir:-"./yaml/change"}"
   local JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-*/jre -maxdepth 0)
 
   if [ ! -d "${a_yamldir}" ]; then echo "$a_yamldir should be a dir." >&2; return 1; fi
@@ -661,30 +682,32 @@ start_arcion() {
 
 }
 
+# change
+start_change_arcion() {
+  local a_repltype="${a_repltype:-"real-time"}"   # snapshot real-time full
+  local a_yamldir="${a_yamldir:-"./yaml/change"}"
+
+  start_arcion
+}
+
+start_cdc_arcion() {
+  local a_repltype="${a_repltype-"real-time"}"   # snapshot real-time full
+  local a_yamldir="${a_yamldir:-"./yaml/cdc"}"
+  
+  start_arcion
+}
+
+
 kill_ycsb() {
-  for pid in $(ps -o pid,command | grep -e '/bin/sh .*/ycsb.sh' | awk '{print $1}'); do 
+  for pid in $(ps -eo pid,command | grep -e '/bin/sh .*/ycsb.sh' | awk '{print $1}'); do 
     kill_recurse $pid
   done 
 }
 
 kill_arcion() { 
-  for pid in $(ps -o pid,command | grep -e 'sh .*/replicant' -e 'sh .*/replicate' | awk '{print $1}'); do
+  for pid in $(ps -eo pid,command | grep -e 'sh .*replicant' -e 'sh .*replicate' | awk '{print $1}'); do
     kill_recurse $pid
   done 
-}
-
-start_change_tracking_arcion() {
-  local REPL_TYPE="${1:-"real-time"}"   # snapshot real-time full
-  local YAML_DIR="${2:-"./yaml/change_tracking"}"
-
-  start_arcion "$REPL_TYPE" "$YAML_DIR"
-}
-
-start_cdc_arcion() {
-  local REPL_TYPE="${1:-"real-time"}"   # snapshot real-time full
-  local YAML_DIR="${2:-"./yaml/cdc"}"
-  
-  start_arcion "$REPL_TYPE" "$YAML_DIR"
 }
 
 

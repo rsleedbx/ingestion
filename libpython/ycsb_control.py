@@ -1,11 +1,22 @@
 from ipywidgets import widgets, HBox, VBox, Label
 
 def show_ycsb_config():
+    global ycsb_row1
+    global ycsb_row2
+    global sparse_cnt
+    global sparse_fields
+    global sparse_field_len
+    global sparse_tps
+    global sparse_threads
+
+    global dense_cnt
+    global dense_fields
+    global dense_field_len
+    global dense_tps
+    global dense_threads
+
     sparse_cnt = widgets.BoundedIntText(value=1,min=1,max=100,
-        description='Instances:',
-    )
-    sparse_tps = widgets.BoundedIntText(value=1,min=0,max=1000,
-        description='TPS:',
+        description='Table Count:',
     )
     sparse_fields = widgets.BoundedIntText(value=10,min=0,max=9000,
         description='# of Fields:',
@@ -13,12 +24,16 @@ def show_ycsb_config():
     sparse_field_len = widgets.BoundedIntText(value=100,min=1,max=1000,
         description='Field Len:',
     )
+    
+    sparse_tps = widgets.BoundedIntText(value=1,min=0,max=1000,
+        description='TPS:',
+    )
+    sparse_threads = widgets.BoundedIntText(value=1,min=1,max=8,
+        description='Threads:',
+    )
 
     dense_cnt = widgets.BoundedIntText(value=1,min=1,max=100,
-        description='Instances:',
-    )
-    dense_tps = widgets.BoundedIntText(value=1,min=0,max=1000,
-        description='TPS:',
+        description='Table Count:',
     )
     dense_fields = widgets.BoundedIntText(value=10,min=0,max=9000,
         description='# of Fields:',
@@ -26,7 +41,12 @@ def show_ycsb_config():
     dense_field_len = widgets.BoundedIntText(value=100,min=1,max=1000,
         description='Field Len:',
     )
-    row1=HBox([Label('Sparse'), sparse_cnt, sparse_tps, sparse_fields, sparse_field_len])
-    row2=HBox([Label('Dense'),  dense_cnt,  dense_tps,  dense_fields, dense_field_len])
-    return(VBox([row1,row2]))
+    
+    dense_tps = widgets.BoundedIntText(value=1,min=0,max=1000,
+        description='TPS:',
+    )
+    dense_threads = widgets.BoundedIntText(value=1,min=1,max=8,
+        description='Threads:',
+    )
+
 

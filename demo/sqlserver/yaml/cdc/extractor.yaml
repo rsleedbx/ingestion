@@ -11,7 +11,7 @@ realtime:
   _traceDBTasks: true
   # enable DDL replication
   ddl-replication:
-    enable: true
+    enable: false
     catalog: "${SRCDB_DB}"
     schema: "${SRCDB_SCHEMA}"
     detect-ddl-interval: 1   # default 600 is too long for demo wait
