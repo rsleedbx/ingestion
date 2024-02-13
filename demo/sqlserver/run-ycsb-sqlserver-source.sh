@@ -557,6 +557,9 @@ load_ycsb() {
   popd >/dev/null
 }
 
+# fq_table_names
+# y_threads:-1
+# y_target:-1
 start_ycsb() {
   readarray -d ',' -t tablenames_array <<< "${fq_table_names:-ycsbdense,ycsbsparse}"
   pushd /opt/stage/ycsb/ycsb-jdbc-binding-0.18.0-SNAPSHOT/ >/dev/null
@@ -631,19 +634,23 @@ arcion_version() {
 }
 
 # --clean-job
+# a_repltype:-"real-time"
+# a_yamldir:-"./yaml/change_tracking"
 start_arcion() {
   replicant_or_replicate
-  local REPL_TYPE="${1:-"real-time"}"   # snapshot real-time full
-  local YAML_DIR="${2:-"./yaml/change_tracking"}"
+  local a_repltype="${a_repltype:-"real-time"}"   # snapshot real-time full
+  local a_yamldir="${a_yamldir:-"./yaml/change_tracking"}"
   local JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-*/jre -maxdepth 0)
 
-  $ARCION_HOME/bin/$ARCION_BIN "${REPL_TYPE}" \
-    $(heredoc_file ${YAML_DIR}/src.yaml                     >config/src.yaml        | echo config/src.yaml) \
-    $(heredoc_file ${YAML_DIR}/dst_null.yaml                >config/dst.yaml        | echo config/dst.yaml) \
-    --general $(heredoc_file ${YAML_DIR}/general.yaml       >config/general.yaml    | echo config/general.yaml) \
-    --extractor $(heredoc_file ${YAML_DIR}/extractor.yaml   >config/extractor.yaml  | echo config/extractor.yaml) \
-    --filter $(heredoc_file ${YAML_DIR}/filter.yaml         >config/filter.yaml     | echo config/filter.yaml) \
-    --applier $(heredoc_file ${YAML_DIR}/applier_null.yaml  >config/applier.yaml    | echo config/applier.yaml) \
+  if [ ! -d "${a_yamldir}" ]; then echo "$a_yamldir should be a dir." >&2; return 1; fi
+
+  $ARCION_HOME/bin/$ARCION_BIN "${a_repltype}" \
+    $(heredoc_file ${a_yamldir}/src.yaml                     >config/src.yaml        | echo config/src.yaml) \
+    $(heredoc_file ${a_yamldir}/dst_null.yaml                >config/dst.yaml        | echo config/dst.yaml) \
+    --general $(heredoc_file ${a_yamldir}/general.yaml       >config/general.yaml    | echo config/general.yaml) \
+    --extractor $(heredoc_file ${a_yamldir}/extractor.yaml   >config/extractor.yaml  | echo config/extractor.yaml) \
+    --filter $(heredoc_file ${a_yamldir}/filter.yaml         >config/filter.yaml     | echo config/filter.yaml) \
+    --applier $(heredoc_file ${a_yamldir}/applier_null.yaml  >config/applier.yaml    | echo config/applier.yaml) \
     --overwrite --id $$ --replace >$PROG_DIR/logs/arcion.log 2>&1 &
   
   ARCION_PID=$!
@@ -652,6 +659,18 @@ start_arcion() {
   echo "arcion log is at $PROG_DIR/logs/arcion.log"
   echo "arcion can be killed with . ./demo/sqlserver/run-ycsb-sqlserver-source.sh; kill_recurse \$(cat \$PROG_DIR/logs/arcion.pid)"
 
+}
+
+kill_ycsb() {
+  for pid in $(ps -o pid,command | grep -e '/bin/sh .*/ycsb.sh' | awk '{print $1}'); do 
+    kill_recurse $pid
+  done 
+}
+
+kill_arcion() { 
+  for pid in $(ps -o pid,command | grep -e 'sh .*/replicant' -e 'sh .*/replicate' | awk '{print $1}'); do
+    kill_recurse $pid
+  done 
 }
 
 start_change_tracking_arcion() {
