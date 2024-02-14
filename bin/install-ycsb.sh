@@ -18,6 +18,14 @@ else
     echo "YCSB  /opt/stage/ycsb/ycsb-jdbc-binding-0.18.0-SNAPSHOT  found"
 fi
 
+# numfmt from coreutils
+if [ -z "$(dpkg -l coreutils 2>/dev/null)" ]; then 
+    sudo apt-get update -y
+    sudo apt-get install -y coreutils
+else
+    echo "numfmt found"
+fi
+
 for inst in $(find /opt/stage/ycsb -name "lib"); do
   dir="$(dirname $inst)/lib"
   echo "checking jar(s) in $dir for updates"

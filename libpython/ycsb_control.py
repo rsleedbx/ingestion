@@ -33,7 +33,7 @@ def show_ycsb_config():
     sparse_threads = widgets.BoundedIntText(value=1,min=1,max=8,
         description='Threads:',
     )
-    sparse_recordcount = widgets.BoundedIntText(value=1000000,min=1,max=1000000000,
+    sparse_recordcount = widgets.Text(value="1M",
         description='Rec Cnt:',
     )
 
@@ -46,7 +46,7 @@ def show_ycsb_config():
     dense_fieldlength = widgets.BoundedIntText(value=100,min=1,max=1000,
         description='Field Len:',
     )
-    dense_recordcount = widgets.BoundedIntText(value=200000,min=1,max=1000000000,
+    dense_recordcount = widgets.Text(value="100K",
         description='Rec Cnt:',
     )
     

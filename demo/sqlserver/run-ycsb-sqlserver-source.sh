@@ -63,10 +63,24 @@ sf_to_name() {
 # https://learn.microsoft.com/en-us/sql/tools/bcp-utility?view=sql-server-ver16
 # bcp does not support pipe. materialize the file, then load
 
+load_dense_data_cnt() {
+  local TABLE_COUNT=${1:-${TABLE_COUNT:-1}}
+  for i in $(seq 1 $TABLE_COUNT); do
+    load_dense_data $i
+  done
+}
+
+load_sparse_data_cnt() {
+  local TABLE_COUNT=${1:-${TABLE_COUNT:-1}}
+  for i in $(seq 1 $TABLE_COUNT); do
+    load_sparse_data $i
+  done
+}
+
 load_dense_data() {
-    local SIZE_FACTOR=${1:-${SIZE_FACTOR:-1}}
-    local SIZE_FACTOR_NAME=$(sf_to_name $SIZE_FACTOR)
-    echo "Starting dense table $SIZE_FACTOR" 
+    local TABLE_INST=${1:-${TABLE_INST:-1}}
+    local TABLE_INST_NAME=$(sf_to_name $TABLE_INST)
+    echo "Starting dense table $TABLE_INST" 
 
     # create table
     heredoc_file ${PROG_DIR}/lib/03_densetable.sql > ${INITDB_LOG_DIR}/03_densetable.sql 
@@ -79,23 +93,23 @@ load_dense_data() {
 
     # prepare data file
     datafile=$(mktemp -p $INITDB_LOG_DIR)
-    make_ycsb_dense_data $datafile ${SIZE_FACTOR}
+    make_ycsb_dense_data $datafile ${TABLE_INST}
     
     # run the bulk loader
     # batch of 1M
     # -u trust certifcate
-    time bcp YCSBDENSE${SIZE_FACTOR_NAME} in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d arcsrc -f ${INITDB_LOG_DIR}/03_densetable.fmt -b 10000 | tee ${INITDB_LOG_DIR}/03_densetable.log
+    time bcp YCSBDENSE${TABLE_INST_NAME} in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d arcsrc -f ${INITDB_LOG_DIR}/03_densetable.fmt -b 10000 | tee ${INITDB_LOG_DIR}/03_densetable.log
 
     # delete datafile
     rm $datafile
 
-    echo "Finished dense table $SIZE_FACTOR" 
+    echo "Finished dense table $TABLE_INST" 
 }
 
 load_sparse_data() {
-    local SIZE_FACTOR=${1:-${SIZE_FACTOR:-1}}
-    local SIZE_FACTOR_NAME=$(sf_to_name $SIZE_FACTOR)
-    echo "Starting sparse table $SIZE_FACTOR" 
+    local TABLE_INST=${1:-${TABLE_INST:-1}}
+    local TABLE_INST_NAME=$(sf_to_name $TABLE_INST)
+    echo "Starting sparse table $TABLE_INST" 
 
     # create table
     heredoc_file ${PROG_DIR}/lib/03_sparsetable.sql > ${INITDB_LOG_DIR}/03_sparsetable.sql 
@@ -108,46 +122,48 @@ load_sparse_data() {
 
     # prepare data file
     datafile=$(mktemp -p $INITDB_LOG_DIR)
-    make_ycsb_sparse_data $datafile ${SIZE_FACTOR}
+    make_ycsb_sparse_data $datafile ${TABLE_INST}
     
     # run the bulk loader
     # batch of 1M
-    # tablename=YCSBSPARSE${SIZE_FACTOR_NAME}
+    # tablename=YCSBSPARSE${TABLE_INST_NAME}
     # -u trust certifcate
-    time bcp YCSBSPARSE${SIZE_FACTOR_NAME} in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d arcsrc -f ${INITDB_LOG_DIR}/03_sparsetable.fmt -b 1000000 | tee ${INITDB_LOG_DIR}/03_sparsetable.log
+    time bcp YCSBSPARSE${TABLE_INST_NAME} in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d arcsrc -f ${INITDB_LOG_DIR}/03_sparsetable.fmt -b 1000000 | tee ${INITDB_LOG_DIR}/03_sparsetable.log
 
     # delete datafile
     rm $datafile   
 
-    echo "Finished sparse table $SIZE_FACTOR" 
+    echo "Finished sparse table $TABLE_INST" 
 }
 
+# env variables
+#   INITDB_LOG_DIR
+#   y_recordcount_sparse
 make_ycsb_sparse_data() {
     local datafile=${1:-$(mktemp -p $INITDB_LOG_DIR)}
-    local SIZE_FACTOR=${2:-${SIZE_FACTOR:-1}}
 
     rm -rf $datafile >/dev/null 2>&1
     #mkfifo ${datafile}
     local y_recordcount=${y_recordcount_sparse:-1000000}
-    seq 0 $(( ${y_recordcount} * ${SIZE_FACTOR:-1} - 1 )) > ${datafile}
+    y_recordcount=$( numfmt --from=auto $y_recordcount)
+    seq 0 $(( ${y_recordcount} - 1 )) > ${datafile}
 }
 
 make_ycsb_dense_data() {
     local datafile=${1:-$(mktemp -p $INITDB_LOG_DIR)}
-    local SIZE_FACTOR=${2:-${SIZE_FACTOR:-1}}
-
 
     rm -rf $datafile >/dev/null 2>&1
     #mkfifo ${datafile}
     # hardcoded data dense generator
-    # seq 0 $(( 10000*${SIZE_FACTOR:-1} - 1 )) | \
+    # seq 0 10000 | \
     #    awk '{printf "%10d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d\n", \
     #        $1,$1,$1,$1,$1,$1,$1,$1,$1,$1,$1}' > ${datafile}
 
     local y_fieldcount=${y_fieldcount_dense:-10}
     local y_fieldlength=${y_fieldlength_dense:-100}
     local y_recordcount=${y_recordcount_dense:-10000}
-    seq 0 $(( ${y_recordcount} * ${SIZE_FACTOR:-1} - 1 )) | \
+    y_recordcount=$( numfmt --from=auto $y_recordcount)
+    seq 0 $(( ${y_recordcount} - 1 )) | \
         awk "{printf \"%10d\",\$1; for (i=1;i<=${y_fieldcount};i++) printf \",%0${y_fieldlength}d\",\$1; printf \"\n\"}" > ${datafile}
 }
 
@@ -374,36 +390,35 @@ enable_cdc() {
 
   echo "enable cdc on database ${SRCDB_DB}"
   sql_root_cli <<EOF
-  -- required for CDC
-
-if not exists (select name from sys.databases where is_cdc_enabled = 1 and name in ('${SRCDB_DB}'))
-  begin
-    select 'EXEC sys.sp_cdc_enable_db;';  
-    use ${SRCDB_DB};
-    EXEC sys.sp_cdc_enable_db; 
-  end
-else
-  select 'skip EXEC sys.sp_cdc_enable_db;';  
+    -- required for CDC
+    if not exists (select name from sys.databases where is_cdc_enabled = 1 and name in ('${SRCDB_DB}'))
+      begin
+        select 'EXEC sys.sp_cdc_enable_db;';  
+        use ${SRCDB_DB};
+        EXEC sys.sp_cdc_enable_db; 
+      end
+    else
+      select 'skip EXEC sys.sp_cdc_enable_db;';  
 EOF
 
   # enable cdc on table ${tablename}
   list_regular_tables | while read tablename; do
     cat >>/tmp/enable_cdc.txt <<EOF
-if not exists (select t.name as table_name, s.name as schema_name, t.is_tracked_by_cdc 
-  from sys.tables t
-  left join sys.schemas s on t.schema_id = s.schema_id
-  where t.name in ('$tablename') and t.is_tracked_by_cdc=1)
-  begin
-    select 'EXEC sys.sp_cdc_enable_table  @source_schema = ${SRCDB_SCHEMA:-dbo}, @source_name = $tablename,  @role_name = NULL, @supports_net_changes = 0;';
+      if not exists (select t.name as table_name, s.name as schema_name, t.is_tracked_by_cdc 
+        from sys.tables t
+        left join sys.schemas s on t.schema_id = s.schema_id
+        where t.name in ('$tablename') and t.is_tracked_by_cdc=1)
+        begin
+          select 'EXEC sys.sp_cdc_enable_table  @source_schema = ${SRCDB_SCHEMA:-dbo}, @source_name = $tablename,  @role_name = NULL, @supports_net_changes = 0;';
 
-    EXEC sys.sp_cdc_enable_table  
-    @source_schema = '${SRCDB_SCHEMA:-dbo}',  
-    @source_name   = '$tablename',  
-    @role_name     = NULL,  
-    @supports_net_changes = 0;
-  end
-else
-    select 'skip EXEC sys.sp_cdc_enable_table  @source_schema = ${SRCDB_SCHEMA:-dbo}, @source_name = $tablename,  @role_name = NULL, @supports_net_changes = 0;';
+          EXEC sys.sp_cdc_enable_table  
+          @source_schema = '${SRCDB_SCHEMA:-dbo}',  
+          @source_name   = '$tablename',  
+          @role_name     = NULL,  
+          @supports_net_changes = 0;
+        end
+      else
+          select 'skip EXEC sys.sp_cdc_enable_table  @source_schema = ${SRCDB_SCHEMA:-dbo}, @source_name = $tablename,  @role_name = NULL, @supports_net_changes = 0;';
 EOF
   done
   if [ -s /tmp/enable_cdc.txt ]; then 
@@ -418,19 +433,19 @@ disable_cdc() {
   # disable cdc on table ${tablename}
   list_regular_tables | while read tablename; do
     cat >>/tmp/disable_cdc.txt <<EOF   
-if exists (select t.name as table_name, s.name as schema_name, t.is_tracked_by_cdc 
-    from sys.tables t
-    left join sys.schemas s on t.schema_id = s.schema_id
-    where t.name in ('$tablename') and t.is_tracked_by_cdc=1)
-  begin
-    select 'EXEC sys.sp_cdc_disable_table @source_schema=${SRCDB_SCHEMA:-dbo},@source_name=$tablename, @capture_instance=all;'
-    EXEC sys.sp_cdc_disable_table  
-      @source_schema = '${SRCDB_SCHEMA:-dbo}',  
-      @source_name   = '$tablename',  
-      @capture_instance = 'all'
-  end
-else
-    select 'skip EXEC sys.sp_cdc_disable_table @source_schema=${SRCDB_SCHEMA:-dbo},@source_name=$tablename, @capture_instance=all;'
+  if exists (select t.name as table_name, s.name as schema_name, t.is_tracked_by_cdc 
+      from sys.tables t
+      left join sys.schemas s on t.schema_id = s.schema_id
+      where t.name in ('$tablename') and t.is_tracked_by_cdc=1)
+    begin
+      select 'EXEC sys.sp_cdc_disable_table @source_schema=${SRCDB_SCHEMA:-dbo},@source_name=$tablename, @capture_instance=all;'
+      EXEC sys.sp_cdc_disable_table  
+        @source_schema = '${SRCDB_SCHEMA:-dbo}',  
+        @source_name   = '$tablename',  
+        @capture_instance = 'all'
+    end
+  else
+      select 'skip EXEC sys.sp_cdc_disable_table @source_schema=${SRCDB_SCHEMA:-dbo},@source_name=$tablename, @capture_instance=all;'
 EOF
   done
   if [ -s /tmp/disable_cdc.txt ]; then 
@@ -439,14 +454,14 @@ EOF
 
   # disable cdc on database ${SRCDB_DB}
   sql_root_cli <<EOF
-  if exists (select name from sys.databases where is_cdc_enabled = 1 and name in ('${SRCDB_DB}'))
-    begin
-      select 'EXEC sys.sp_cdc_disable_db;'; 
-      use ${SRCDB_DB};
-      EXEC sys.sp_cdc_disable_db;
-    end 
-  else
-    select 'skip EXEC sys.sp_cdc_disable_db;'; 
+    if exists (select name from sys.databases where is_cdc_enabled = 1 and name in ('${SRCDB_DB}'))
+      begin
+        select 'EXEC sys.sp_cdc_disable_db;'; 
+        use ${SRCDB_DB};
+        EXEC sys.sp_cdc_disable_db;
+      end 
+    else
+      select 'skip EXEC sys.sp_cdc_disable_db;'; 
 EOF
 }
 
@@ -585,21 +600,24 @@ var_name() {
 # y_fieldcount:-10
 # y_fieldlength:-100
 start_ycsb() {
-
-  readarray -d ',' -t tablenames_array <<< "${fq_table_names:-dense,sparse}"
+  local tabletype
   pushd /opt/stage/ycsb/ycsb-jdbc-binding-0.18.0-SNAPSHOT/ >/dev/null
-  for tablename in ${tablenames_array[*]}; do
+  for tablename in $(list_tables | grep "^YCSB" | awk -F, '{print $1}'); do
+    if [[ "${tablename^^}" =~ "DENSE" ]]; then tabletype="dense";
+    else tabletype="sparse";
+    fi
     echo $tablename
+    echo $tabletype
 
-    local _y_threads=$(var_name "threads" "$tablename")
-    local _y_target=$(var_name "target" "$tablename")
-    local _y_fieldlength=$(var_name "fieldlength" "$tablename")
-    local _y_fieldcount=$(var_name "fieldcount" "$tablename")
-    local _y_recordcount=$(var_name "recordcount" "$tablename")
+    local _y_threads=$(var_name "threads" "$tabletype")
+    local _y_target=$(var_name "target" "$tabletype")
+    local _y_fieldlength=$(var_name "fieldlength" "$tabletype")
+    local _y_fieldcount=$(var_name "fieldcount" "$tabletype")
+    local _y_recordcount=$(var_name "recordcount" "$tabletype")
 
     # run
     JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-* -maxdepth 0 ) \
-    bin/ycsb.sh run jdbc -s -P workloads/workloada -p table=ycsb${tablename} \
+    bin/ycsb.sh run jdbc -s -P workloads/workloada -p table=${tablename} \
     -p db.driver=$SRCDB_JDBC_DRIVER \
     -p db.url=$SRCDB_JDBC_URL \
     -p db.user="$SRCDB_ARC_USER" \
