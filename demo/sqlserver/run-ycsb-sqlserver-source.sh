@@ -624,7 +624,7 @@ start_ycsb() {
     echo $YCSB_PID > $PROG_DIR/logs/ycsb.$tablename.pid
     echo "ycsb $tablename pid $YCSB_PID"  
     echo "ycsb $tablename log is at $PROG_DIR/logs/ycsb.$tablename.log"
-    echo "ycsb $tablename can be killed with . ./demo/sqlserver/run-ycsb-sqlserver-source.sh; kill_recurse \$(cat \$PROG_DIR/logs/ycsb.$tablename.pid)"
+    echo "ycsb $tablename can be killed with . ./demo/sqlserver/run-ycsb-sqlserver-source.sh; kill_ycsb)"
     done
     popd >/dev/null
 
@@ -693,7 +693,7 @@ start_arcion() {
   echo $ARCION_PID > $PROG_DIR/logs/arcion.pid
   echo "arcion pid $ARCION_PID"  
   echo "arcion log is at $PROG_DIR/logs/arcion.log"
-  echo "arcion can be killed with . ./demo/sqlserver/run-ycsb-sqlserver-source.sh; kill_recurse \$(cat \$PROG_DIR/logs/arcion.pid)"
+  echo "arcion can be killed with . ./demo/sqlserver/run-ycsb-sqlserver-source.sh; kill_arcion)"
 
 }
 
