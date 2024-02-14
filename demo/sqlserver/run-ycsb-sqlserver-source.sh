@@ -701,14 +701,14 @@ start_arcion() {
 start_change_arcion() {
   local a_repltype="${a_repltype:-"real-time"}"   # snapshot real-time full
   local a_yamldir="${a_yamldir:-"./yaml/change"}"
-
+  enable_change_tracking
   start_arcion
 }
 
 start_cdc_arcion() {
   local a_repltype="${a_repltype-"real-time"}"   # snapshot real-time full
   local a_yamldir="${a_yamldir:-"./yaml/cdc"}"
-  
+  enable_cdc
   start_arcion
 }
 
