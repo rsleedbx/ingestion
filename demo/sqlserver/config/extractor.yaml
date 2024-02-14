@@ -1,5 +1,5 @@
 snapshot:
-  threads: 3
+  threads: 1
   _traceDBTasks: true
   fetch-user-roles: false
   _fetch-exact-row-count: false    
