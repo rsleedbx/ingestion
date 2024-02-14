@@ -4,24 +4,26 @@ def show_ycsb_config():
     global ycsb_row1
     global ycsb_row2
     global sparse_cnt
-    global sparse_fields
-    global sparse_field_len
+    global sparse_fieldcount
+    global sparse_fieldlength
     global sparse_tps
     global sparse_threads
+    global sparse_recordcount
 
     global dense_cnt
-    global dense_fields
-    global dense_field_len
+    global dense_fieldcount
+    global dense_fieldlength
     global dense_tps
     global dense_threads
+    global dense_recordcount
 
     sparse_cnt = widgets.BoundedIntText(value=1,min=1,max=100,
-        description='Table Count:',
+        description='Table Cnt:',
     )
-    sparse_fields = widgets.BoundedIntText(value=10,min=0,max=9000,
+    sparse_fieldcount = widgets.BoundedIntText(value=50,min=0,max=9000,
         description='# of Fields:',
     )
-    sparse_field_len = widgets.BoundedIntText(value=100,min=1,max=1000,
+    sparse_fieldlength = widgets.BoundedIntText(value=10,min=1,max=1000,
         description='Field Len:',
     )
     
@@ -31,15 +33,21 @@ def show_ycsb_config():
     sparse_threads = widgets.BoundedIntText(value=1,min=1,max=8,
         description='Threads:',
     )
+    sparse_recordcount = widgets.BoundedIntText(value=1000000,min=1,max=1000000000,
+        description='Rec Cnt:',
+    )
 
     dense_cnt = widgets.BoundedIntText(value=1,min=1,max=100,
-        description='Table Count:',
+        description='Table Cnt:',
     )
-    dense_fields = widgets.BoundedIntText(value=10,min=0,max=9000,
+    dense_fieldcount = widgets.BoundedIntText(value=10,min=0,max=9000,
         description='# of Fields:',
     )
-    dense_field_len = widgets.BoundedIntText(value=100,min=1,max=1000,
+    dense_fieldlength = widgets.BoundedIntText(value=100,min=1,max=1000,
         description='Field Len:',
+    )
+    dense_recordcount = widgets.BoundedIntText(value=200000,min=1,max=1000000000,
+        description='Rec Cnt:',
     )
     
     dense_tps = widgets.BoundedIntText(value=1,min=0,max=1000,

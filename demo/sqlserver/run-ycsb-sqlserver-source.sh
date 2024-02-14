@@ -69,11 +69,13 @@ load_dense_data() {
     echo "Starting dense table $SIZE_FACTOR" 
 
     # create table
-    heredoc_file ${PROG_DIR}/lib/03_densetable.sql | tee ${INITDB_LOG_DIR}/03_densetable.sql 
+    heredoc_file ${PROG_DIR}/lib/03_densetable.sql > ${INITDB_LOG_DIR}/03_densetable.sql 
     sql_cli < ${INITDB_LOG_DIR}/03_densetable.sql 
+    echo "${INITDB_LOG_DIR}/03_densetable.sql" 
 
     # prepare bulk loader
-    heredoc_file ${PROG_DIR}/lib/03_densetable.fmt | tee ${INITDB_LOG_DIR}/03_densetable.fmt
+    heredoc_file ${PROG_DIR}/lib/03_densetable.fmt > ${INITDB_LOG_DIR}/03_densetable.fmt
+    echo "${INITDB_LOG_DIR}/03_densetable.fmt" 
 
     # prepare data file
     datafile=$(mktemp -p $INITDB_LOG_DIR)
@@ -96,11 +98,13 @@ load_sparse_data() {
     echo "Starting sparse table $SIZE_FACTOR" 
 
     # create table
-    heredoc_file ${PROG_DIR}/lib/03_sparsetable.sql | tee ${INITDB_LOG_DIR}/03_sparsetable.sql 
+    heredoc_file ${PROG_DIR}/lib/03_sparsetable.sql > ${INITDB_LOG_DIR}/03_sparsetable.sql 
     sql_cli < ${INITDB_LOG_DIR}/03_sparsetable.sql 
+    echo "${INITDB_LOG_DIR}/03_sparsetable.sql"
 
     # prepare bulk loader
-    heredoc_file ${PROG_DIR}/lib/03_sparsetable.fmt | tee ${INITDB_LOG_DIR}/03_sparsetable.fmt
+    heredoc_file ${PROG_DIR}/lib/03_sparsetable.fmt > ${INITDB_LOG_DIR}/03_sparsetable.fmt
+    echo "${INITDB_LOG_DIR}/03_sparsetable.fmt"
 
     # prepare data file
     datafile=$(mktemp -p $INITDB_LOG_DIR)
@@ -124,7 +128,8 @@ make_ycsb_sparse_data() {
 
     rm -rf $datafile >/dev/null 2>&1
     #mkfifo ${datafile}
-    seq 0 $(( 1000000*${SIZE_FACTOR:-1} - 1 )) > ${datafile}
+    local y_recordcount=${y_recordcount_sparse:-1000000}
+    seq 0 $(( ${y_recordcount} * ${SIZE_FACTOR:-1} - 1 )) > ${datafile}
 }
 
 make_ycsb_dense_data() {
@@ -139,10 +144,11 @@ make_ycsb_dense_data() {
     #    awk '{printf "%10d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d\n", \
     #        $1,$1,$1,$1,$1,$1,$1,$1,$1,$1,$1}' > ${datafile}
 
-    local y_fieldcount=${y_fieldcount:-10}
-    local y_fieldlength=${y_fieldlength:-100}
-    seq 0 $(( 10000*${SIZE_FACTOR:-1} - 1 )) | \
-        awk "{printf \"%10d\",\$1; for (i=1;i<=${y_fieldcount};i++) printf \",%0${y_field_length}d\",\$1; printf \"\n\"}" > ${datafile}
+    local y_fieldcount=${y_fieldcount_dense:-10}
+    local y_fieldlength=${y_fieldlength_dense:-100}
+    local y_recordcount=${y_recordcount_dense:-10000}
+    seq 0 $(( ${y_recordcount} * ${SIZE_FACTOR:-1} - 1 )) | \
+        awk "{printf \"%10d\",\$1; for (i=1;i<=${y_fieldcount};i++) printf \",%0${y_fieldlength}d\",\$1; printf \"\n\"}" > ${datafile}
 }
 
 sql_cli() {
@@ -576,6 +582,8 @@ var_name() {
 # fq_table_names
 # y_threads:-1 or y_threads_dense y_threads_sparse 
 # y_target:-1 or y_target_dense y_target_sparse
+# y_fieldcount:-10
+# y_fieldlength:-100
 start_ycsb() {
 
   readarray -d ',' -t tablenames_array <<< "${fq_table_names:-dense,sparse}"
@@ -585,6 +593,9 @@ start_ycsb() {
 
     local _y_threads=$(var_name "threads" "$tablename")
     local _y_target=$(var_name "target" "$tablename")
+    local _y_fieldlength=$(var_name "fieldlength" "$tablename")
+    local _y_fieldcount=$(var_name "fieldcount" "$tablename")
+    local _y_recordcount=$(var_name "recordcount" "$tablename")
 
     # run
     JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-* -maxdepth 0 ) \
@@ -597,11 +608,15 @@ start_ycsb() {
     -p jdbc.autocommit=true \
     -p jdbc.fetchsize=10 \
     -p db.batchsize=1000 \
-    -p recordcount=100000 \
+    -p recordcount=${!_y_recordcount:-1000} \
     -p operationcount=10000000 \
     -p jdbc.batchupdateapi=true \
     -p jdbc.ycsbkeyprefix=false \
     -p insertorder=ordered \
+    -p readproportion=0 \
+    -p updateproportion=1 \
+    -p fieldcount=${!_y_fieldcount:-10} \
+    -p fieldlength=${!_y_fieldlength:-100} \
     -threads ${!_y_threads:-1} \
     -target ${!_y_target:-1} "${@}" >$PROG_DIR/logs/ycsb.$tablename.log 2>&1 &
     
