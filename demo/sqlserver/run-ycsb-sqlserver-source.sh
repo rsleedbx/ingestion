@@ -65,90 +65,117 @@ sf_to_name() {
 
 load_dense_data_cnt() {
   local TABLE_COUNT=${1:-${TABLE_COUNT:-1}}
+  local y_fieldcount=${y_fieldcount_dense:-10}
+  local y_fieldlength=${y_fieldlength_dense:-100}
+  local y_recordcount=${y_recordcount_dense:-100K}
+  local y_populatedcount=${y_fieldcount}
+  local y_tabletype=dense
+
   for i in $(seq 1 $TABLE_COUNT); do
     load_dense_data $i
   done
+  list_table_counts
+  dump_schema
 }
 
 load_sparse_data_cnt() {
   local TABLE_COUNT=${1:-${TABLE_COUNT:-1}}
+  local y_fieldcount=${y_fieldcount_sparse:-10}
+  local y_fieldlength=${y_fieldlength_sparse:-100} 
+  local y_recordcount=${y_recordcount_sparse:-1M}
+  local y_populatedcount=0
+  local y_tabletype=sparse
+
   for i in $(seq 1 $TABLE_COUNT); do
-    load_sparse_data $i
+    load_dense_data $i
   done
+  list_table_counts
+  dump_schema
 }
 
 load_dense_data() {
     local TABLE_INST=${1:-${TABLE_INST:-1}}
     local TABLE_INST_NAME=$(sf_to_name $TABLE_INST)
-    echo "Starting dense table $TABLE_INST" 
+    local y_insertstart
+    local table_field_cnt
+    local record_count=0  
 
-    # create table
-    heredoc_file ${PROG_DIR}/lib/03_densetable.sql > ${INITDB_LOG_DIR}/03_densetable.sql 
-    sql_cli < ${INITDB_LOG_DIR}/03_densetable.sql 
-    echo "${INITDB_LOG_DIR}/03_densetable.sql" 
+    local y_populatedcount=$( numfmt --from=auto $y_populatedcount )
+    local y_fieldlength=$( numfmt --from=auto $y_fieldlength )
+    local y_recordcount=$( numfmt --from=auto $y_recordcount )
 
-    # prepare bulk loader
-    heredoc_file ${PROG_DIR}/lib/03_densetable.fmt > ${INITDB_LOG_DIR}/03_densetable.fmt
-    echo "${INITDB_LOG_DIR}/03_densetable.fmt" 
+    echo "Starting type=${y_tabletype} inst=$TABLE_INST" 
 
-    # prepare data file
-    datafile=$(mktemp -p $INITDB_LOG_DIR)
-    make_ycsb_dense_data $datafile ${TABLE_INST}
-    
-    # run the bulk loader
-    # batch of 1M
-    # -u trust certifcate
-    time bcp YCSBDENSE${TABLE_INST_NAME} in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d arcsrc -f ${INITDB_LOG_DIR}/03_densetable.fmt -b 10000 | tee ${INITDB_LOG_DIR}/03_densetable.log
+    # existing table cardinality
+    # [0]=table name
+    # [1]=min
+    # [2]=max
+    if [ -f /tmp/list_table_counts.csv ]; then 
+      readarray -d ',' -t table_stat_array < <(echo -n  $(cat /tmp/list_table_counts.csv | grep "^YCSB${y_tabletype^^}${TABLE_INST_NAME},") )
+      if [[ ${table_stat_array[2]} != "NULL" ]]; then
+        record_count=$(( ${table_stat_array[2]} + 1 )) 
+      fi   
+    fi
 
-    # delete datafile
-    rm $datafile
+    # create table if not already exists
+    if [ -z "${table_stat_array}" ]; then
+      heredoc_file ${PROG_DIR}/lib/03_usertable.sql > ${INITDB_LOG_DIR}/03_ycsb${y_tabletype}.sql 
+      sql_cli < ${INITDB_LOG_DIR}/03_ycsb${y_tabletype}.sql
+      echo "${INITDB_LOG_DIR}/03_ycsb${y_tabletype}.sql" 
+      table_field_cnt=${y_fieldcount}
+    else
+      echo "skip table create"
+    fi
 
-    echo "Finished dense table $TABLE_INST" 
+    # table schema
+    # [0]=highest field number
+    if [[ -z "${table_field_cnt}" && -f /tmp/schema_dump.csv ]]; then
+      table_field_cnt=$( cat /tmp/schema_dump.csv | grep "^YCSB${y_tabletype^^}${TABLE_INST_NAME}," | wc -l )
+      table_field_cnt=$(( table_field_cnt - 1 ))
+    fi
+
+    if [ -z "$table_field_cnt" ]; then 
+      echo "error: table schema missing to determine field count. run dump_schema" >&2
+      return 1;
+    fi
+
+    # table did not exist or 
+    if [[ -z "${table_stat_array}" ]] || 
+       [[ -n "${table_stat_array}" && ${y_recordcount} -gt ${record_count} && ${y_fieldcount} -eq ${table_field_cnt} ]]; then
+      
+      # start from the end of existing records (assume YCSB_KEY started at 0)
+      y_insertstart=$record_count
+      echo "inserting insertstart=$y_insertstart insert ends at ycsb_key=$(( $y_recordcount - 1 ))"
+
+      # prepare bulk loader
+      echo "y_populatedcount=$y_populatedcount"
+      y_populatedcount=${y_populatedcount} ${PROG_DIR}/lib/03_usertable.fmt.py > ${INITDB_LOG_DIR}/03_${y_tabletype}table.fmt
+      echo "${INITDB_LOG_DIR}/03_${y_tabletype}table.fmt" 
+
+      # prepare data file
+      datafile=$(mktemp -p $INITDB_LOG_DIR)
+      make_ycsb_dense_data $datafile ${TABLE_INST}
+      echo "data file to be purged ${datafile}"
+      
+      # run the bulk loaders
+      # batch of 1M
+      # -u trust certifcate
+      time bcp YCSB${y_tabletype^^}${TABLE_INST_NAME} in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d arcsrc -f ${INITDB_LOG_DIR}/03_${y_tabletype}table.fmt -b 10000 | tee ${INITDB_LOG_DIR}/03_${y_tabletype}table.log
+
+      # delete datafile
+      rm $datafile
+
+      echo "Finished dense table $TABLE_INST" 
+    else
+      echo "skip load need existing count ${y_recordcount} -gt ${record_count} && field ${y_fieldcount} -eq ${table_field_cnt} "
+    fi
 }
 
-load_sparse_data() {
-    local TABLE_INST=${1:-${TABLE_INST:-1}}
-    local TABLE_INST_NAME=$(sf_to_name $TABLE_INST)
-    echo "Starting sparse table $TABLE_INST" 
-
-    # create table
-    heredoc_file ${PROG_DIR}/lib/03_sparsetable.sql > ${INITDB_LOG_DIR}/03_sparsetable.sql 
-    sql_cli < ${INITDB_LOG_DIR}/03_sparsetable.sql 
-    echo "${INITDB_LOG_DIR}/03_sparsetable.sql"
-
-    # prepare bulk loader
-    heredoc_file ${PROG_DIR}/lib/03_sparsetable.fmt > ${INITDB_LOG_DIR}/03_sparsetable.fmt
-    echo "${INITDB_LOG_DIR}/03_sparsetable.fmt"
-
-    # prepare data file
-    datafile=$(mktemp -p $INITDB_LOG_DIR)
-    make_ycsb_sparse_data $datafile ${TABLE_INST}
-    
-    # run the bulk loader
-    # batch of 1M
-    # tablename=YCSBSPARSE${TABLE_INST_NAME}
-    # -u trust certifcate
-    time bcp YCSBSPARSE${TABLE_INST_NAME} in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d arcsrc -f ${INITDB_LOG_DIR}/03_sparsetable.fmt -b 1000000 | tee ${INITDB_LOG_DIR}/03_sparsetable.log
-
-    # delete datafile
-    rm $datafile   
-
-    echo "Finished sparse table $TABLE_INST" 
-}
-
-# env variables
-#   INITDB_LOG_DIR
-#   y_recordcount_sparse
-make_ycsb_sparse_data() {
-    local datafile=${1:-$(mktemp -p $INITDB_LOG_DIR)}
-
-    rm -rf $datafile >/dev/null 2>&1
-    #mkfifo ${datafile}
-    local y_recordcount=${y_recordcount_sparse:-1000000}
-    y_recordcount=$( numfmt --from=auto $y_recordcount)
-    seq 0 $(( ${y_recordcount} - 1 )) > ${datafile}
-}
-
+# parms
+#   y_fieldlength
+#   y_fieldcount
+#   y_insertstart
+#   y_recordcount
 make_ycsb_dense_data() {
     local datafile=${1:-$(mktemp -p $INITDB_LOG_DIR)}
 
@@ -159,12 +186,12 @@ make_ycsb_dense_data() {
     #    awk '{printf "%10d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d\n", \
     #        $1,$1,$1,$1,$1,$1,$1,$1,$1,$1,$1}' > ${datafile}
 
-    local y_fieldcount=${y_fieldcount_dense:-10}
-    local y_fieldlength=${y_fieldlength_dense:-100}
-    local y_recordcount=${y_recordcount_dense:-10000}
-    y_recordcount=$( numfmt --from=auto $y_recordcount)
-    seq 0 $(( ${y_recordcount} - 1 )) | \
-        awk "{printf \"%10d\",\$1; for (i=1;i<=${y_fieldcount};i++) printf \",%0${y_fieldlength}d\",\$1; printf \"\n\"}" > ${datafile}
+    local y_populatedcount=$( numfmt --from=auto ${y_populatedcount} )
+    local y_fieldlength=$( numfmt --from=auto $y_fieldlength )
+    local y_insertstart=$( numfmt --from=auto $y_insertstart )
+    local y_recordcount=$( numfmt --from=auto $y_recordcount )
+    seq ${y_insertstart:-0} $(( ${y_recordcount:-1000} - 1 )) | \
+        awk "{printf \"%10d\",\$1; for (i=1;i<=${y_populatedcount:-10};i++) printf \",%0${y_fieldlength:-10}d\",\$1; printf \"\n\"}" > ${datafile}
 }
 
 sql_cli() {
@@ -327,11 +354,39 @@ create_ycsb_table() {
   heredoc_file demo/sqlserver/sql/ycsb.sql | tee -a demo/sqlserver/config/ycsb.sql | sql_cli
 }
 
+dump_schema() {
+  local TABLE_NAME
+  if [ -n "${1}" ]; then 
+    TABLE_NAME="table_name = '${1}' and"
+  fi
+
+  sql_cli <<EOF > /tmp/schema_dump.csv
+select table_name,column_name,data_type, column_default, is_nullable, character_maximum_length, numeric_precision, numeric_scale, datetime_precision 
+from information_schema.columns 
+WHERE ${TABLE_NAME} table_schema='${SRCDB_SCHEMA}' and table_catalog='${SRCDB_DB}' 
+order by table_catalog, table_schema, table_name,ordinal_position;
+EOF
+  echo "schema dump at /tmp/schema_dump.csv" >&2
+}
+
 list_tables() {
   sql_cli <<EOF
 SELECT table_name, table_type FROM information_schema.tables where table_type in ('BASE TABLE','VIEW') and table_schema like '${SRCDB_SCHEMA:-%}' and table_catalog like '${SRCDB_ARC_USER:-%}' order by table_name
 go
 EOF
+}
+
+list_table_counts() {
+  rm /tmp/list_table_counts.sql 2>/dev/null
+  for tables in $(list_regular_tables | grep -v "^replicate" ); do
+    echo "select '$tables',min(ycsb_key), max(ycsb_key) from $tables;" >> /tmp/list_table_counts.sql
+  done
+  if [ -f /tmp/list_table_counts.sql ]; then 
+    cat /tmp/list_table_counts.sql | sql_cli > /tmp/list_table_counts.csv
+  else
+    touch /tmp/list_table_counts.sql
+  fi
+  echo "table count at /tmp/list_table_counts.csv" >&2
 }
 
 #
@@ -351,6 +406,12 @@ add_column_ycsb() {
 ALTER TABLE ${fq_table_name} ADD FIELD11 TEXT NULL
 go
 EOF
+}
+
+drop_all_ycsb_tables() {
+  list_tables | awk -F ',' '/^YCSB/ {printf "drop table %s;\n",$1}' | sql_cli
+  rm /tmp/list_table_counts.csv 2>/dev/null
+  rm /tmp/schema_dump.csv 2>/dev/null
 }
 
 drop_column_ycsb() {
@@ -601,6 +662,7 @@ var_name() {
 # y_fieldlength:-100
 start_ycsb() {
   local tabletype
+  
   pushd /opt/stage/ycsb/ycsb-jdbc-binding-0.18.0-SNAPSHOT/ >/dev/null
   for tablename in $(list_tables | grep "^YCSB" | awk -F, '{print $1}'); do
     if [[ "${tablename^^}" =~ "DENSE" ]]; then tabletype="dense";

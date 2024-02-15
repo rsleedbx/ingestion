@@ -1,4 +1,4 @@
-CREATE TABLE YCSBDENSE (
+CREATE TABLE YCSB${y_tabletype^^} (
 YCSB_KEY INT,
 FIELD0 text,
 FIELD1 text,
