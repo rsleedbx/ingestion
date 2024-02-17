@@ -1,8 +1,0 @@
-license-path: /opt/stage/libs/replicant.lic
-data-dir: /home/rslee/github/dbx/ingestion/demo/sqlserver/logs
-permission-validation: 
-  enable: false
-#trace-log: #trace-log avail starting 23-05-31
-#  trace-level: INFO
-
-

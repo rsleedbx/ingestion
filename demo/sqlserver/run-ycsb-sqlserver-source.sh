@@ -65,32 +65,30 @@ sf_to_name() {
 
 load_dense_data_cnt() {
   local TABLE_COUNT=${1:-${TABLE_COUNT:-1}}
-  local y_fieldcount=${y_fieldcount_dense:-10}
-  local y_fieldlength=${y_fieldlength_dense:-100}
-  local y_recordcount=${y_recordcount_dense:-100K}
-  local y_populatedcount=${y_fieldcount}
+  local y_fieldcount=${y_fieldcount:-10}
+  local y_fieldlength=${y_fieldlength:-100}
+  local y_recordcount=${y_recordcount:-100K}
+  local y_fillstart=${y_fillstart:-1}
+  local y_fillend=${y_fillend:-${y_fieldcount}}
   local y_tabletype=dense
 
   for i in $(seq 1 $TABLE_COUNT); do
     load_dense_data $i
   done
-  list_table_counts
-  dump_schema
 }
 
 load_sparse_data_cnt() {
   local TABLE_COUNT=${1:-${TABLE_COUNT:-1}}
-  local y_fieldcount=${y_fieldcount_sparse:-10}
-  local y_fieldlength=${y_fieldlength_sparse:-100} 
-  local y_recordcount=${y_recordcount_sparse:-1M}
-  local y_populatedcount=0
+  local y_fieldcount=${y_fieldcount:-10}
+  local y_fieldlength=${y_fieldlength:-100} 
+  local y_recordcount=${y_recordcount:-1M}
+  local y_fillstart=${y_fillstart:-0}
+  local y_fillend=${y_fillend:-0}
   local y_tabletype=sparse
 
   for i in $(seq 1 $TABLE_COUNT); do
     load_dense_data $i
   done
-  list_table_counts
-  dump_schema
 }
 
 load_dense_data() {
@@ -100,9 +98,12 @@ load_dense_data() {
     local table_field_cnt
     local record_count=0  
 
-    local y_populatedcount=$( numfmt --from=auto $y_populatedcount )
-    local y_fieldlength=$( numfmt --from=auto $y_fieldlength )
-    local y_recordcount=$( numfmt --from=auto $y_recordcount )
+    local y_fieldcount=$( numfmt --from=auto  "$y_fieldcount" )
+    local y_fillstart=$( numfmt --from=auto "$y_fillstart" )
+    local y_fillend=$( numfmt --from=auto "$y_fillend" )
+    local y_fieldlength=$( numfmt --from=auto "$y_fieldlength" )
+    local y_recordcount=$( numfmt --from=auto "$y_recordcount" )
+    local progress_interval_rows=$(( y_recordcount / 10 ))
 
     echo "Starting type=${y_tabletype} inst=$TABLE_INST" 
 
@@ -148,8 +149,9 @@ load_dense_data() {
       echo "inserting insertstart=$y_insertstart insert ends at ycsb_key=$(( $y_recordcount - 1 ))"
 
       # prepare bulk loader
-      echo "y_populatedcount=$y_populatedcount"
-      y_populatedcount=${y_populatedcount} ${PROG_DIR}/lib/03_usertable.fmt.py > ${INITDB_LOG_DIR}/03_${y_tabletype}table.fmt
+      # https://learn.microsoft.com/en-us/sql/relational-databases/import-export/use-a-format-file-to-skip-a-table-column-sql-server?view=sql-server-ver16
+      echo "y_fieldcount=$y_fieldcount y_fillstart=$y_fillstart y_fillend=$fillend"
+      y_fieldcount=${y_fieldcount} ${PROG_DIR}/lib/03_usertable.fmt.py > ${INITDB_LOG_DIR}/03_${y_tabletype}table.fmt
       echo "${INITDB_LOG_DIR}/03_${y_tabletype}table.fmt" 
 
       # prepare data file
@@ -160,10 +162,13 @@ load_dense_data() {
       # run the bulk loaders
       # batch of 1M
       # -u trust certifcate
-      time bcp YCSB${y_tabletype^^}${TABLE_INST_NAME} in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d arcsrc -f ${INITDB_LOG_DIR}/03_${y_tabletype}table.fmt -b 10000 | tee ${INITDB_LOG_DIR}/03_${y_tabletype}table.log
+      set -x
+      time bcp YCSB${y_tabletype^^}${TABLE_INST_NAME} in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d arcsrc -f ${INITDB_LOG_DIR}/03_${y_tabletype}table.fmt -b ${progress_interval_rows} | tee ${INITDB_LOG_DIR}/03_${y_tabletype}table.log
+      set +x
+      echo "bcp log at ${INITDB_LOG_DIR}/03_${y_tabletype}table.log"
 
       # delete datafile
-      rm $datafile
+      # rm $datafile
 
       echo "Finished dense table $TABLE_INST" 
     else
@@ -186,12 +191,28 @@ make_ycsb_dense_data() {
     #    awk '{printf "%10d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d\n", \
     #        $1,$1,$1,$1,$1,$1,$1,$1,$1,$1,$1}' > ${datafile}
 
-    local y_populatedcount=$( numfmt --from=auto ${y_populatedcount} )
-    local y_fieldlength=$( numfmt --from=auto $y_fieldlength )
-    local y_insertstart=$( numfmt --from=auto $y_insertstart )
-    local y_recordcount=$( numfmt --from=auto $y_recordcount )
-    seq ${y_insertstart:-0} $(( ${y_recordcount:-1000} - 1 )) | \
-        awk "{printf \"%10d\",\$1; for (i=1;i<=${y_populatedcount:-10};i++) printf \",%0${y_fieldlength:-10}d\",\$1; printf \"\n\"}" > ${datafile}
+    # convert KMBGT suffix to numeric
+    local y_fillstart=$( numfmt --from=auto ${y_fillstart:-1} )
+    local y_fillend=$( numfmt --from=auto ${y_fillend:-3} )
+    local y_fieldcount=$( numfmt --from=auto ${y_fieldcount:-10} )
+    local y_fieldlength=$( numfmt --from=auto ${y_fieldlength:-5} )
+    local y_insertstart=$( numfmt --from=auto ${y_insertstart:-0} )
+    local y_recordcount=$( numfmt --from=auto ${y_recordcount:-10} )
+
+    # 1 <= y_fillstart <= fillend <= fieldcount 
+    if (( y_fillend > y_fieldcount )); then y_fillend=$y_fieldcount; fi
+    if (( y_fillstart > y_fillend )); then y_fillend=$y_fieldcount; fi
+
+    # generate data
+    seq ${y_insertstart} $(( ${y_recordcount} - 1 )) | \
+    awk "{printf \"%10d\",\$1; 
+    # prefix nulls if any
+    for (i=1;i<${y_fillstart};i++) printf \",\";
+    # data
+    for (;i<=${y_fillend};i++) printf \",%0${y_fieldlength}d\",\$1;
+    # trailing nulls if any
+    for (;i<=${y_fieldcount};i++) printf \",\";
+    printf \"\n\"}" > ${datafile}
 }
 
 sql_cli() {
@@ -673,6 +694,8 @@ start_ycsb() {
 
     local _y_threads=$(var_name "threads" "$tabletype")
     local _y_target=$(var_name "target" "$tabletype")
+
+    # use the table metadata if available
     local _y_fieldlength=$(var_name "fieldlength" "$tabletype")
     local _y_fieldcount=$(var_name "fieldcount" "$tabletype")
     local _y_recordcount=$(var_name "recordcount" "$tabletype")
