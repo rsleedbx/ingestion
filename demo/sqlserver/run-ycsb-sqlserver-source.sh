@@ -105,12 +105,23 @@ convert_table_stat_to_var() {
   record_count=${table_stat_array[2]} 
   field_count=${table_stat_array[3]} 
 
-  if [[ ${table_stat_array[2]} != "NULL" ]]; then
+  if [[ ${table_stat_array[1]} == "NULL" ]]; then
+    record_start=0
+  else 
+    record_start=$(( ${table_stat_array[1]} + 1 )) 
+  fi   
+
+  if [[ ${table_stat_array[2]} == "NULL" ]]; then
+    record_count=0
+  else 
     record_count=$(( ${table_stat_array[2]} + 1 )) 
   fi   
-  if [[ ${table_stat_array[3]} != "NULL" ]]; then
+  
+  if [[ ${table_stat_array[3]} == "NULL" ]]; then
+    field_count=0
+  else
     field_count=${table_stat_array[3]} 
-  fi   
+  fi
 }
 
 load_dense_data() {
@@ -153,7 +164,7 @@ load_dense_data() {
     fi
 
     # table did not exist or 
-    if [[ -z "${table_stat_array}" ]] || 
+    if [[ -z "${table_stat_array}" || ${record_count} == 0 ]] || 
        [[ -n "${table_stat_array}" && ${y_recordcount} -gt ${record_count} && ${y_fieldcount} -eq ${table_field_cnt} ]]; then
       
       # start from the end of existing records (assume YCSB_KEY started at 0)
@@ -166,22 +177,46 @@ load_dense_data() {
       y_fieldcount=${y_fieldcount} ${PROG_DIR}/lib/03_usertable.fmt.py > ${INITDB_LOG_DIR}/03_${y_tabletype}table.fmt
       echo "${INITDB_LOG_DIR}/03_${y_tabletype}table.fmt" 
 
-      # prepare data file
       datafile=$(mktemp -p $INITDB_LOG_DIR)
-      make_ycsb_dense_data $datafile ${TABLE_INST}
-      echo "data file to be purged ${datafile}"
-      
-      # run the bulk loaders
-      # batch of 1M
-      # -u trust certifcate
-      set -x
-      time bcp YCSB${y_tabletype^^}${TABLE_INST_NAME} in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d arcsrc -f ${INITDB_LOG_DIR}/03_${y_tabletype}table.fmt -b ${progress_interval_rows} | tee ${INITDB_LOG_DIR}/03_${y_tabletype}table.log
-      set +x
-      echo "bcp log at ${INITDB_LOG_DIR}/03_${y_tabletype}table.log"
 
-      # delete datafile
-      # rm $datafile
+      # prepare data file
+      # the following env vars are used
+      # local y_fillstart=$( numfmt --from=auto ${y_fillstart:-1} )
+      # local y_fillend=$( numfmt --from=auto ${y_fillend:-3} )
+      # local y_fieldcount=$( numfmt --from=auto ${y_fieldcount:-10} )
+      # local y_fieldlength=$( numfmt --from=auto ${y_fieldlength:-5} )
+      # local y_insertstart=$( numfmt --from=auto ${y_insertstart:-0} )
+      # local y_recordcount=$( numfmt --from=auto ${y_recordcount:-10} )
 
+      local chunk_size=1000000  # 1M
+      local chunk_insertstart=${y_insertstart}
+      local current_chunk_size=$(( y_recordcount - chunk_insertstart ))
+      echo "$chunk_insertstart < $y_recordcount"
+      while (( chunk_insertstart < y_recordcount )); do
+        echo "current_chunk_size=$current_chunk_size ($y_recordcount - $chunk_insertstart)"
+        if (( current_chunk_size > chunk_size )); then 
+          chunk_recordcount=$(( chunk_insertstart + chunk_size )) 
+        else 
+          chunk_recordcount=$(( chunk_insertstart + current_chunk_size )) 
+        fi
+        echo "starting chunk $chunk_insertstart to $chunk_recordcount"
+        make_ycsb_dense_data $datafile ${TABLE_INST}
+        echo "data file to be purged ${datafile}"
+        
+        # run the bulk loaders
+        # batch of 1M
+        # -u trust certifcate
+        set -x
+        time bcp YCSB${y_tabletype^^}${TABLE_INST_NAME} in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d arcsrc -f ${INITDB_LOG_DIR}/03_${y_tabletype}table.fmt -b ${progress_interval_rows} | tee ${INITDB_LOG_DIR}/03_${y_tabletype}table.log
+        set +x
+        echo "bcp log at ${INITDB_LOG_DIR}/03_${y_tabletype}table.log"
+
+        # delete datafile
+        rm $datafile
+        # move to the next chunk
+        chunk_insertstart=$(( chunk_insertstart + chunk_size ))
+        current_chunk_size=$(( y_recordcount - chunk_insertstart ))
+      done
       echo "Finished dense table $TABLE_INST" 
     else
       echo "skip load need existing count ${y_recordcount} -gt ${record_count} && field ${y_fieldcount} -eq ${table_field_cnt} "
@@ -208,15 +243,15 @@ make_ycsb_dense_data() {
     local y_fillend=$( numfmt --from=auto ${y_fillend:-3} )
     local y_fieldcount=$( numfmt --from=auto ${y_fieldcount:-10} )
     local y_fieldlength=$( numfmt --from=auto ${y_fieldlength:-5} )
-    local y_insertstart=$( numfmt --from=auto ${y_insertstart:-0} )
-    local y_recordcount=$( numfmt --from=auto ${y_recordcount:-10} )
+    local chunk_insertstart=$( numfmt --from=auto ${chunk_insertstart:-0} )
+    local chunk_recordcount=$( numfmt --from=auto ${chunk_recordcount:-10} )
 
     # 1 <= y_fillstart <= fillend <= fieldcount 
     if (( y_fillend > y_fieldcount )); then y_fillend=$y_fieldcount; fi
     if (( y_fillstart > y_fillend )); then y_fillend=$y_fieldcount; fi
 
     # generate data
-    seq ${y_insertstart} $(( ${y_recordcount} - 1 )) | \
+    seq ${chunk_insertstart} $(( ${chunk_recordcount} - 1 )) | \
     awk "{printf \"%10d\",\$1; 
     # prefix nulls if any
     for (i=1;i<${y_fillstart};i++) printf \",\";
