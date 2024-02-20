@@ -162,7 +162,7 @@ load_dense_data() {
 
       # prepare bulk loader
       # https://learn.microsoft.com/en-us/sql/relational-databases/import-export/use-a-format-file-to-skip-a-table-column-sql-server?view=sql-server-ver16
-      echo "y_fieldcount=$y_fieldcount y_fillstart=$y_fillstart y_fillend=$fillend"
+      echo "y_fieldcount=$y_fieldcount y_fillstart=$y_fillstart y_fillend=$y_fillend"
       y_fieldcount=${y_fieldcount} ${PROG_DIR}/lib/03_usertable.fmt.py > ${INITDB_LOG_DIR}/03_${y_tabletype}table.fmt
       echo "${INITDB_LOG_DIR}/03_${y_tabletype}table.fmt" 
 
