@@ -91,12 +91,33 @@ load_sparse_data_cnt() {
   done
 }
 
+
+# return env_var
+#  table_name
+#  record_count
+#  field_count
+convert_table_stat_to_var() {
+  local table_stat_array
+
+  readarray -d ',' -t table_stat_array < <(echo -n $1)
+  table_name=${table_stat_array[0],,} 
+  record_start=${table_stat_array[1]} 
+  record_count=${table_stat_array[2]} 
+  field_count=${table_stat_array[3]} 
+
+  if [[ ${table_stat_array[2]} != "NULL" ]]; then
+    record_count=$(( ${table_stat_array[2]} + 1 )) 
+  fi   
+  if [[ ${table_stat_array[3]} != "NULL" ]]; then
+    field_count=${table_stat_array[3]} 
+  fi   
+}
+
 load_dense_data() {
     local TABLE_INST=${1:-${TABLE_INST:-1}}
     local TABLE_INST_NAME=$(sf_to_name $TABLE_INST)
     local y_insertstart
     local table_field_cnt
-    local record_count=0  
 
     local y_fieldcount=$( numfmt --from=auto  "$y_fieldcount" )
     local y_fillstart=$( numfmt --from=auto "$y_fillstart" )
@@ -107,16 +128,13 @@ load_dense_data() {
 
     echo "Starting type=${y_tabletype} inst=$TABLE_INST" 
 
-    # existing table cardinality
-    # [0]=table name
-    # [1]=min
-    # [2]=max
-    if [ -f /tmp/list_table_counts.csv ]; then 
-      readarray -d ',' -t table_stat_array < <(echo -n  $(cat /tmp/list_table_counts.csv | grep "^YCSB${y_tabletype^^}${TABLE_INST_NAME},") )
-      if [[ ${table_stat_array[2]} != "NULL" ]]; then
-        record_count=$(( ${table_stat_array[2]} + 1 )) 
-      fi   
-    fi
+    # return table_name, record_count, field_count, 
+    local table_name
+    local record_start=0
+    local record_count=0
+    local field_count=10
+    table_stat_array=$(cat /tmp/list_table_counts.csv | grep "^YCSB${y_tabletype^^}${TABLE_INST_NAME},")
+    convert_table_stat_to_var "$table_stat_array"
 
     # create table if not already exists
     if [ -z "${table_stat_array}" ]; then
@@ -128,15 +146,9 @@ load_dense_data() {
       echo "skip table create"
     fi
 
-    # table schema
-    # [0]=highest field number
-    if [[ -z "${table_field_cnt}" && -f /tmp/schema_dump.csv ]]; then
-      table_field_cnt=$( cat /tmp/schema_dump.csv | grep "^YCSB${y_tabletype^^}${TABLE_INST_NAME}," | wc -l )
-      table_field_cnt=$(( table_field_cnt - 1 ))
-    fi
-
+    table_field_cnt=${table_field_cnt:-${field_count}}
     if [ -z "$table_field_cnt" ]; then 
-      echo "error: table schema missing to determine field count. run dump_schema" >&2
+      echo "error: table schema missing to determine the field count. run list_table_counts" >&2
       return 1;
     fi
 
@@ -400,7 +412,7 @@ EOF
 list_table_counts() {
   rm /tmp/list_table_counts.sql 2>/dev/null
   for tables in $(list_regular_tables | grep -v "^replicate" ); do
-    echo "select '$tables',min(ycsb_key), max(ycsb_key) from $tables;" >> /tmp/list_table_counts.sql
+    echo "select '$tables', min(a.ycsb_key), max(a.ycsb_key), max(b.field_count) from $tables a, (select max(ordinal_position)-1 field_count from information_schema.columns where table_name='$tables' and table_schema='${SRCDB_SCHEMA}' and table_catalog='${SRCDB_DB}') b;" >> /tmp/list_table_counts.sql  
   done
   if [ -f /tmp/list_table_counts.sql ]; then 
     cat /tmp/list_table_counts.sql | sql_cli > /tmp/list_table_counts.csv
@@ -683,26 +695,33 @@ var_name() {
 # y_fieldlength:-100
 start_ycsb() {
   local tabletype
-  
-  pushd /opt/stage/ycsb/ycsb-jdbc-binding-0.18.0-SNAPSHOT/ >/dev/null
-  for tablename in $(list_tables | grep "^YCSB" | awk -F, '{print $1}'); do
-    if [[ "${tablename^^}" =~ "DENSE" ]]; then tabletype="dense";
-    else tabletype="sparse";
-    fi
-    echo $tablename
-    echo $tabletype
 
+  echo "running ycsb on /tmp/list_table_counts.csv"
+  pushd /opt/stage/ycsb/ycsb-jdbc-binding-0.18.0-SNAPSHOT/ >/dev/null
+  for tablestat in $(cat /tmp/list_table_counts.csv); do
+    echo "$tablestat"
+
+    # read from the stat
+    local table_name
+    local record_start
+    local record_count
+    local field_count
+    convert_table_stat_to_var "${tablestat}"
+
+    if [[ "${table_name,,}" =~ "dense" ]]; then tabletype="dense"; else tabletype="sparse";fi
+    if [ -z "${record_count}" ] || [ "${record_count}" = "[NULL]" ]; then echo "record_count not defined.  run list_table_counts or load data"; return 1; fi
+    if [ -z "${field_count}"  ] || [ "${field_count}"  = "[NULL]" ]; then echo "field_count not defined.  run list_table_counts"; return 1; fi
+  
+    # read from the env vars
     local _y_threads=$(var_name "threads" "$tabletype")
     local _y_target=$(var_name "target" "$tabletype")
-
-    # use the table metadata if available
     local _y_fieldlength=$(var_name "fieldlength" "$tabletype")
-    local _y_fieldcount=$(var_name "fieldcount" "$tabletype")
-    local _y_recordcount=$(var_name "recordcount" "$tabletype")
+
+    echo "table_name=$table_name tabletype=$tabletype record_count=$record_count field_count=$field_count _y_threads=${!_y_threads} _y_target=${!_y_target} _y_fieldlength=${!_y_fieldlength}"
 
     # run
     JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-* -maxdepth 0 ) \
-    bin/ycsb.sh run jdbc -s -P workloads/workloada -p table=${tablename} \
+    bin/ycsb.sh run jdbc -s -P workloads/workloada -p table=${table_name} \
     -p db.driver=$SRCDB_JDBC_DRIVER \
     -p db.url=$SRCDB_JDBC_URL \
     -p db.user="$SRCDB_ARC_USER" \
@@ -711,24 +730,26 @@ start_ycsb() {
     -p jdbc.autocommit=true \
     -p jdbc.fetchsize=10 \
     -p db.batchsize=1000 \
-    -p recordcount=${!_y_recordcount:-1000} \
+    -p insertstart=${record_start:-0} \
+    -p recordcount=${record_count:-1000} \
     -p operationcount=10000000 \
     -p jdbc.batchupdateapi=true \
     -p jdbc.ycsbkeyprefix=false \
     -p insertorder=ordered \
     -p readproportion=0 \
     -p updateproportion=1 \
-    -p fieldcount=${!_y_fieldcount:-10} \
-    -p fieldlength=${!_y_fieldlength:-100} \
+    -p fieldcount=${field_count:-10} \
+    -p fieldlength=${y_fieldlength:-100} \
     -threads ${!_y_threads:-1} \
-    -target ${!_y_target:-1} "${@}" >$PROG_DIR/logs/ycsb.$tablename.log 2>&1 &
+    -target ${!_y_target:-1} "${@}" >$PROG_DIR/logs/ycsb.$table_name.log 2>&1 &
     
     YCSB_PID=$!
-    echo $YCSB_PID > $PROG_DIR/logs/ycsb.$tablename.pid
-    echo "ycsb $tablename pid $YCSB_PID"  
-    echo "ycsb $tablename log is at $PROG_DIR/logs/ycsb.$tablename.log"
-    echo "ycsb $tablename can be killed with . ./demo/sqlserver/run-ycsb-sqlserver-source.sh; kill_ycsb)"
+    echo $YCSB_PID > $PROG_DIR/logs/ycsb.$table_name.pid
+    echo "ycsb $table_name pid $YCSB_PID"  
+    echo "ycsb $table_name log is at $PROG_DIR/logs/ycsb.$table_name.log"
+    echo "ycsb $table_name can be killed with . ./demo/sqlserver/run-ycsb-sqlserver-source.sh; kill_ycsb)"
     done
+
     popd >/dev/null
 
   }
