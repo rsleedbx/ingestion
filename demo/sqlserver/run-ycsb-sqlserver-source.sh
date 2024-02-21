@@ -872,20 +872,30 @@ start_arcion() {
   if [ ! -f ${a_yamldir}/dst_${DSTDB_TYPE}.yaml ]; then echo " ${a_yamldir}/dst_${DSTDB_TYPE}.yaml" >&2; return 1; fi
   if [ ! -f ${a_yamldir}/applier_${DSTDB_TYPE}.yaml ]; then echo "${a_yamldir}/applier_${DSTDB_TYPE}.yaml not found." >&2; return 1; fi
 
+  # cfg dir has log dir using nine_char_id 
   local NINE_CHAR_ID=$(nine_char_id)
   local ARCION_CFG_DIR=$LOG_DIR/$NINE_CHAR_ID
   local ARCION_LOG_DIR=$ARCION_CFG_DIR/$NINE_CHAR_ID
   mkdir -p $ARCION_LOG_DIR
   mkdir -p $ARCION_CFG_DIR
 
+  # prepare the YAML file
+  heredoc_file ${a_yamldir}/src.yaml                    >${ARCION_CFG_DIR}/src.yaml      
+  heredoc_file ${a_yamldir}/dst_${DSTDB_TYPE}.yaml      >${ARCION_CFG_DIR}/dst.yaml      
+  heredoc_file ${a_yamldir}/applier_${DSTDB_TYPE}.yaml  >${ARCION_CFG_DIR}/applier.yaml   
+  heredoc_file ${a_yamldir}/general.yaml                >${ARCION_CFG_DIR}/general.yaml 
+  heredoc_file ${a_yamldir}/extractor.yaml              >${ARCION_CFG_DIR}/extractor.yaml 
+  heredoc_file ${a_yamldir}/filter.yaml                 >${ARCION_CFG_DIR}/filter.yaml  
+
+  # run arcion
   JAVA_HOME=$JAVA_HOME \
   $ARCION_HOME/bin/$ARCION_BIN "${a_repltype}" \
-            $(heredoc_file ${a_yamldir}/src.yaml                      >${ARCION_CFG_DIR}/src.yaml       | echo ${ARCION_CFG_DIR}/src.yaml) \
-            $(heredoc_file ${a_yamldir}/dst_${DSTDB_TYPE}.yaml        >${ARCION_CFG_DIR}/dst.yaml       | echo ${ARCION_CFG_DIR}/dst.yaml) \
-    --applier $(heredoc_file ${a_yamldir}/applier_${DSTDB_TYPE}.yaml  >${ARCION_CFG_DIR}/applier.yaml   | echo ${ARCION_CFG_DIR}/applier.yaml) \
-    --general $(heredoc_file ${a_yamldir}/general.yaml                >${ARCION_CFG_DIR}/general.yaml   | echo ${ARCION_CFG_DIR}/general.yaml) \
-    --extractor $(heredoc_file ${a_yamldir}/extractor.yaml            >${ARCION_CFG_DIR}/extractor.yaml | echo ${ARCION_CFG_DIR}/extractor.yaml) \
-    --filter $(heredoc_file ${a_yamldir}/filter.yaml                  >${ARCION_CFG_DIR}/filter.yaml    | echo ${ARCION_CFG_DIR}/filter.yaml) \
+                ${ARCION_CFG_DIR}/src.yaml \
+                ${ARCION_CFG_DIR}/dst.yaml \
+    --applier   ${ARCION_CFG_DIR}/applier.yaml \
+    --general   ${ARCION_CFG_DIR}/general.yaml \
+    --extractor ${ARCION_CFG_DIR}/extractor.yaml \
+    --filter    ${ARCION_CFG_DIR}/filter.yaml \
     --overwrite --id $NINE_CHAR_ID --replace >${ARCION_CFG_DIR}/arcion.log 2>&1 &
   
   ARCION_PID=$!
