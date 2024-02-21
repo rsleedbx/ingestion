@@ -150,7 +150,7 @@ load_dense_data() {
 
     # create table if not already exists
     if [ -z "${table_stat_array}" ]; then
-      heredoc_file ${PROG_DIR}/lib/03_usertable.sql > ${INITDB_LOG_DIR}/03_ycsb${y_tabletype}.sql 
+      heredoc_file ${PROG_DIR}/sql/03_usertable.sql > ${INITDB_LOG_DIR}/03_ycsb${y_tabletype}.sql 
       sql_cli < ${INITDB_LOG_DIR}/03_ycsb${y_tabletype}.sql
       echo "${INITDB_LOG_DIR}/03_ycsb${y_tabletype}.sql" 
       table_field_cnt=${y_fieldcount}
@@ -175,7 +175,7 @@ load_dense_data() {
       # prepare bulk loader
       # https://learn.microsoft.com/en-us/sql/relational-databases/import-export/use-a-format-file-to-skip-a-table-column-sql-server?view=sql-server-ver16
       echo "y_fieldcount=$y_fieldcount y_fillstart=$y_fillstart y_fillend=$y_fillend"
-      y_fieldcount=${y_fieldcount} ${PROG_DIR}/lib/03_usertable.fmt.py > ${INITDB_LOG_DIR}/03_${y_tabletype}table.fmt
+      y_fieldcount=${y_fieldcount} ${PROG_DIR}/sql/03_usertable.fmt.py > ${INITDB_LOG_DIR}/03_${y_tabletype}table.fmt
       echo "${INITDB_LOG_DIR}/03_${y_tabletype}table.fmt" 
 
       datafile=$(mktemp -p $INITDB_LOG_DIR)
