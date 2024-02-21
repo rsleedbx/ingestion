@@ -28,7 +28,7 @@ fi
 if [ -z "$(dpkg -l mssql-tools18 2>/dev/null)" ]; then 
     echo "installing mssql-tools18"    
     # this one has yes interaction
-    sudo apt-get install -y mssql-tools18 unixodbc-dev
+    sudo ACCEPT_EULA=Y apt-get install -y mssql-tools18
 else
     echo "mssql-tools18 already installed"    
 fi
@@ -36,7 +36,7 @@ fi
 if [ -z "$(dpkg -l unixodbc-dev 2>/dev/null)" ]; then 
     echo "installing unixodbc-dev"    
     # this one has yes interaction
-    sudo apt-get install -y unixodbc-dev
+    sudo ACCEPT_EULA=Y apt-get install -y unixodbc-dev
 else
     echo "unixodbc-dev alrady installed"    
 fi
