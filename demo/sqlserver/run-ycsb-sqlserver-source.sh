@@ -888,6 +888,7 @@ start_arcion() {
   heredoc_file ${a_yamldir}/filter.yaml                 >${ARCION_CFG_DIR}/filter.yaml  
 
   # run arcion
+  cd $ARCION_CFG_DIR
   JAVA_HOME=$JAVA_HOME \
   $ARCION_HOME/bin/$ARCION_BIN "${a_repltype}" \
                 ${ARCION_CFG_DIR}/src.yaml \
