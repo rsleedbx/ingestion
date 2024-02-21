@@ -13,6 +13,10 @@ CONFIG_DIR=/var/tmp/sqlserver/config
 if [ ! -d ${LOG_DIR} ]; then mkdir -p ${LOG_DIR}; fi
 if [ ! -d ${CONFIG_DIR} ]; then mkdir -p ${CONFIG_DIR}; fi
 
+nine_char_id() {
+    printf "%09x\n" "$(( $(date +%s%N) / 100000000 ))"
+}
+
 create_user() {
   sql_root_cli <<EOF
   CREATE LOGIN ${SRCDB_ARC_USER} WITH PASSWORD = '${SRCDB_ARC_PW}'
@@ -803,12 +807,12 @@ start_ycsb() {
     -p fieldcount=${field_count:-10} \
     -p fieldlength=${y_fieldlength:-100} \
     -threads ${!_y_threads:-1} \
-    -target ${!_y_target:-1} "${@}" >$LOG_DIR/logs/ycsb.$table_name.log 2>&1 &
+    -target ${!_y_target:-1} "${@}" >$LOG_DIR/ycsb.$table_name.log 2>&1 &
     
     YCSB_PID=$!
-    echo $YCSB_PID > $LOG_DIR/logs/ycsb.$table_name.pid
+    echo $YCSB_PID > $LOG_DIR/ycsb.$table_name.pid
     echo "ycsb $table_name pid $YCSB_PID"  
-    echo "ycsb $table_name log is at $LOG_DIR/logs/ycsb.$table_name.log"
+    echo "ycsb $table_name log is at $LOG_DIR/ycsb.$table_name.log"
     echo "ycsb $table_name can be killed with . ./demo/sqlserver/run-ycsb-sqlserver-source.sh; kill_ycsb)"
     done
 
@@ -829,11 +833,10 @@ wait_log() {
   done
 }
 
-run_arcion() {
-  # TODO: make this smarter
-  # java -version 2>&1 | head -n 1 | awk '{print $NF}'
-  JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-* -maxdepth 0 ) \
-  $ARCION_HOME/bin/$ARCION_BIN "$@"
+java_home() {
+  if [ "$(java -version 2>&1 | head -n 1 | awk '{print $NF}' | sed s/\"// | awk -F. '{printf "%s.%s",$1,$2}')" != "1.8" ]; then  
+    export JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-* -maxdepth 0 )
+  fi
 }
 
 # set JAVA_HOME ARCION_HOME ARCION_BIN
@@ -862,27 +865,34 @@ start_arcion() {
   replicant_or_replicate
   local a_repltype="${a_repltype:-"real-time"}"   # snapshot real-time full
   local a_yamldir="${a_yamldir:-"./yaml/change"}"
-  local JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-*/jre -maxdepth 0)
+  local JAVA_HOME=$(java_home)
 
   # check dst config 
   if [ ! -d "${a_yamldir}" ]; then echo "$a_yamldir should be a dir." >&2; return 1; fi
   if [ ! -f ${a_yamldir}/dst_${DSTDB_TYPE}.yaml ]; then echo " ${a_yamldir}/dst_${DSTDB_TYPE}.yaml" >&2; return 1; fi
   if [ ! -f ${a_yamldir}/applier_${DSTDB_TYPE}.yaml ]; then echo "${a_yamldir}/applier_${DSTDB_TYPE}.yaml not found." >&2; return 1; fi
 
+  local NINE_CHAR_ID=$(nine_char_id)
+  local ARCION_CFG_DIR=$LOG_DIR/$NINE_CHAR_ID
+  local ARCION_LOG_DIR=$ARCION_CFG_DIR/$NINE_CHAR_ID
+  mkdir -p $ARCION_LOG_DIR
+  mkdir -p $ARCION_CFG_DIR
+
+  JAVA_HOME=$JAVA_HOME \
   $ARCION_HOME/bin/$ARCION_BIN "${a_repltype}" \
-            $(heredoc_file ${a_yamldir}/src.yaml                      >${CONFIG_DIR}/src.yaml       | echo ${CONFIG_DIR}/src.yaml) \
-            $(heredoc_file ${a_yamldir}/dst_${DSTDB_TYPE}.yaml        >${CONFIG_DIR}/dst.yaml       | echo ${CONFIG_DIR}/dst.yaml) \
-    --applier $(heredoc_file ${a_yamldir}/applier_${DSTDB_TYPE}.yaml  >${CONFIG_DIR}/applier.yaml   | echo ${CONFIG_DIR}/applier.yaml) \
-    --general $(heredoc_file ${a_yamldir}/general.yaml                >${CONFIG_DIR}/general.yaml   | echo ${CONFIG_DIR}/general.yaml) \
-    --extractor $(heredoc_file ${a_yamldir}/extractor.yaml            >${CONFIG_DIR}/extractor.yaml | echo ${CONFIG_DIR}/extractor.yaml) \
-    --filter $(heredoc_file ${a_yamldir}/filter.yaml                  >${CONFIG_DIR}/filter.yaml    | echo ${CONFIG_DIR}/filter.yaml) \
-    --overwrite --id $$ --replace >${LOG_DIR}/arcion.log 2>&1 &
+            $(heredoc_file ${a_yamldir}/src.yaml                      >${ARCION_CFG_DIR}/src.yaml       | echo ${ARCION_CFG_DIR}/src.yaml) \
+            $(heredoc_file ${a_yamldir}/dst_${DSTDB_TYPE}.yaml        >${ARCION_CFG_DIR}/dst.yaml       | echo ${ARCION_CFG_DIR}/dst.yaml) \
+    --applier $(heredoc_file ${a_yamldir}/applier_${DSTDB_TYPE}.yaml  >${ARCION_CFG_DIR}/applier.yaml   | echo ${ARCION_CFG_DIR}/applier.yaml) \
+    --general $(heredoc_file ${a_yamldir}/general.yaml                >${ARCION_CFG_DIR}/general.yaml   | echo ${ARCION_CFG_DIR}/general.yaml) \
+    --extractor $(heredoc_file ${a_yamldir}/extractor.yaml            >${ARCION_CFG_DIR}/extractor.yaml | echo ${ARCION_CFG_DIR}/extractor.yaml) \
+    --filter $(heredoc_file ${a_yamldir}/filter.yaml                  >${ARCION_CFG_DIR}/filter.yaml    | echo ${ARCION_CFG_DIR}/filter.yaml) \
+    --overwrite --id $NINE_CHAR_ID --replace >${ARCION_CFG_DIR}/arcion.log 2>&1 &
   
   ARCION_PID=$!
-  echo $ARCION_PID > $LOG_DIR/arcion.pid
+  echo $ARCION_PID > $ARCION_CFG_DIR/arcion.pid
   echo "arcion pid $ARCION_PID"  
-  echo "arcion console is at $LOG_DIR/arcion.log"
-  echo "arcion log is at $LOG_DIR/$$"
+  echo "arcion console is at $ARCION_CFG_DIR/arcion.log"
+  echo "arcion log is at $ARCION_CFG_DIR"
   echo "arcion can be killed with . ./demo/sqlserver/run-ycsb-sqlserver-source.sh; kill_arcion)"
 
 }
