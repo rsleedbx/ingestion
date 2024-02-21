@@ -8,9 +8,10 @@ fi
 PROG_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 (return 0 2>/dev/null) && export SCRIPT_SOURCED=1 || export SCRIPT_SOURCED=0
 # there is something about dbx prog_dir that prevents shell process to read and write from it
-INITDB_LOG_DIR=/var/tmp/sqlserver
-if [ ! -d ${INITDB_LOG_DIR}/logs ]; then mkdir -p ${INITDB_LOG_DIR}/logs; fi
-if [ ! -d ${INITDB_LOG_DIR}/config ]; then mkdir -p ${INITDB_LOG_DIR}/config; fi
+LOG_DIR=/var/tmp/sqlserver/logs
+CONFIG_DIR=/var/tmp/sqlserver/config
+if [ ! -d ${LOG_DIR} ]; then mkdir -p ${LOG_DIR}; fi
+if [ ! -d ${CONFIG_DIR} ]; then mkdir -p ${CONFIG_DIR}; fi
 
 create_user() {
   sql_root_cli <<EOF
@@ -156,9 +157,9 @@ load_dense_data() {
 
     # create table if not already exists
     if [ -z "${table_stat_array}" ]; then
-      heredoc_file ${PROG_DIR}/sql/03_usertable.sql > ${INITDB_LOG_DIR}/03_ycsb${y_tabletype}.sql 
-      sql_cli < ${INITDB_LOG_DIR}/03_ycsb${y_tabletype}.sql
-      echo "${INITDB_LOG_DIR}/03_ycsb${y_tabletype}.sql" 
+      heredoc_file ${PROG_DIR}/sql/03_usertable.sql > ${LOG_DIR}/03_ycsb${y_tabletype}.sql 
+      sql_cli < ${LOG_DIR}/03_ycsb${y_tabletype}.sql
+      echo "${LOG_DIR}/03_ycsb${y_tabletype}.sql" 
       table_field_cnt=${y_fieldcount}
     else
       echo "skip table create"
@@ -181,10 +182,10 @@ load_dense_data() {
       # prepare bulk loader
       # https://learn.microsoft.com/en-us/sql/relational-databases/import-export/use-a-format-file-to-skip-a-table-column-sql-server?view=sql-server-ver16
       echo "y_fieldcount=$y_fieldcount y_fillstart=$y_fillstart y_fillend=$y_fillend"
-      y_fieldcount=${y_fieldcount} ${PROG_DIR}/sql/03_usertable.fmt.py > ${INITDB_LOG_DIR}/03_${y_tabletype}table.fmt
-      echo "${INITDB_LOG_DIR}/03_${y_tabletype}table.fmt" 
+      y_fieldcount=${y_fieldcount} ${PROG_DIR}/sql/03_usertable.fmt.py > ${LOG_DIR}/03_${y_tabletype}table.fmt
+      echo "${LOG_DIR}/03_${y_tabletype}table.fmt" 
 
-      datafile=$(mktemp -p $INITDB_LOG_DIR)
+      datafile=$(mktemp -p $LOG_DIR)
 
       # prepare data file
       # the following env vars are used
@@ -214,9 +215,9 @@ load_dense_data() {
         # batch of 1M
         # -u trust certifcate
 	set -x
-	bcp "YCSB${y_tabletype^^}${TABLE_INST_NAME}" in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d arcsrc -f "${INITDB_LOG_DIR}/03_${y_tabletype}table.fmt" -b "${progress_interval_rows}" | tee ${INITDB_LOG_DIR}/03_${y_tabletype}table.log
+	bcp "YCSB${y_tabletype^^}${TABLE_INST_NAME}" in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d arcsrc -f "${LOG_DIR}/03_${y_tabletype}table.fmt" -b "${progress_interval_rows}" | tee ${LOG_DIR}/03_${y_tabletype}table.log
         set +x
-        echo "bcp log at ${INITDB_LOG_DIR}/03_${y_tabletype}table.log"
+        echo "bcp log at ${LOG_DIR}/03_${y_tabletype}table.log"
 
         # delete datafile
         # rm $datafile
@@ -230,7 +231,7 @@ load_dense_data() {
     fi
 }
 
-# make a data file in $INITDB_LOG_DIR
+# make a data file in $LOG_DIR
 make_ycsb_dense_data() {
     # process params
     local param
@@ -252,7 +253,7 @@ make_ycsb_dense_data() {
     done
 
     # create tempfile
-    local datafile=${datafile:-$(mktemp -p ${INITDB_LOG_DIR:-/var/tmp})}
+    local datafile=${datafile:-$(mktemp -p ${LOG_DIR:-/var/tmp})}
     # convert KMBGT suffix to numeric
     local y_fillstart=$( numfmt --from=auto ${y_fillstart:-1} )
     local y_fillend=$( numfmt --from=auto ${y_fillend:-3} )
@@ -802,12 +803,12 @@ start_ycsb() {
     -p fieldcount=${field_count:-10} \
     -p fieldlength=${y_fieldlength:-100} \
     -threads ${!_y_threads:-1} \
-    -target ${!_y_target:-1} "${@}" >$INITDB_LOG_DIR/logs/ycsb.$table_name.log 2>&1 &
+    -target ${!_y_target:-1} "${@}" >$LOG_DIR/logs/ycsb.$table_name.log 2>&1 &
     
     YCSB_PID=$!
-    echo $YCSB_PID > $INITDB_LOG_DIR/logs/ycsb.$table_name.pid
+    echo $YCSB_PID > $LOG_DIR/logs/ycsb.$table_name.pid
     echo "ycsb $table_name pid $YCSB_PID"  
-    echo "ycsb $table_name log is at $INITDB_LOG_DIR/logs/ycsb.$table_name.log"
+    echo "ycsb $table_name log is at $LOG_DIR/logs/ycsb.$table_name.log"
     echo "ycsb $table_name can be killed with . ./demo/sqlserver/run-ycsb-sqlserver-source.sh; kill_ycsb)"
     done
 
@@ -869,18 +870,19 @@ start_arcion() {
   if [ ! -f ${a_yamldir}/applier_${DSTDB_TYPE}.yaml ]; then echo "${a_yamldir}/applier_${DSTDB_TYPE}.yaml not found." >&2; return 1; fi
 
   $ARCION_HOME/bin/$ARCION_BIN "${a_repltype}" \
-    $(heredoc_file ${a_yamldir}/src.yaml                              >config/src.yaml        | echo config/src.yaml) \
-    $(heredoc_file ${a_yamldir}/dst_${DSTDB_TYPE}.yaml                >config/dst.yaml        | echo config/dst.yaml) \
-    --applier $(heredoc_file ${a_yamldir}/applier_${DSTDB_TYPE}.yaml  >config/applier.yaml    | echo config/applier.yaml) \
-    --general $(heredoc_file ${a_yamldir}/general.yaml                >config/general.yaml    | echo config/general.yaml) \
-    --extractor $(heredoc_file ${a_yamldir}/extractor.yaml            >config/extractor.yaml  | echo config/extractor.yaml) \
-    --filter $(heredoc_file ${a_yamldir}/filter.yaml                  >config/filter.yaml     | echo config/filter.yaml) \
-    --overwrite --id $$ --replace >$PROG_DIR/logs/arcion.log 2>&1 &
+            $(heredoc_file ${a_yamldir}/src.yaml                      >${CONFIG_DIR}/src.yaml       | echo ${CONFIG_DIR}/src.yaml) \
+            $(heredoc_file ${a_yamldir}/dst_${DSTDB_TYPE}.yaml        >${CONFIG_DIR}/dst.yaml       | echo ${CONFIG_DIR}/dst.yaml) \
+    --applier $(heredoc_file ${a_yamldir}/applier_${DSTDB_TYPE}.yaml  >${CONFIG_DIR}/applier.yaml   | echo ${CONFIG_DIR}/applier.yaml) \
+    --general $(heredoc_file ${a_yamldir}/general.yaml                >${CONFIG_DIR}/general.yaml   | echo ${CONFIG_DIR}/general.yaml) \
+    --extractor $(heredoc_file ${a_yamldir}/extractor.yaml            >${CONFIG_DIR}/extractor.yaml | echo ${CONFIG_DIR}/extractor.yaml) \
+    --filter $(heredoc_file ${a_yamldir}/filter.yaml                  >${CONFIG_DIR}/filter.yaml    | echo ${CONFIG_DIR}/filter.yaml) \
+    --overwrite --id $$ --replace >${LOG_DIR}/arcion.log 2>&1 &
   
   ARCION_PID=$!
-  echo $ARCION_PID > $PROG_DIR/logs/arcion.pid
+  echo $ARCION_PID > $LOG_DIR/arcion.pid
   echo "arcion pid $ARCION_PID"  
-  echo "arcion log is at $PROG_DIR/logs/arcion.log"
+  echo "arcion console is at $LOG_DIR/arcion.log"
+  echo "arcion log is at $LOG_DIR/$$"
   echo "arcion can be killed with . ./demo/sqlserver/run-ycsb-sqlserver-source.sh; kill_arcion)"
 
 }
