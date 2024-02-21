@@ -6,9 +6,11 @@ if [ -z "${BASH_SOURCE}" ]; then
 fi
 
 PROG_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-INITDB_LOG_DIR=${PROG_DIR}/config
 (return 0 2>/dev/null) && export SCRIPT_SOURCED=1 || export SCRIPT_SOURCED=0
-if [ ! -d ${INITDB_LOG_DIR} ]; then mkdir -p ${INITDB_LOG_DIR}; fi
+# there is something about dbx prog_dir that prevents shell process to read and write from it
+INITDB_LOG_DIR=/var/tmp/sqlserver
+if [ ! -d ${INITDB_LOG_DIR}/logs ]; then mkdir -p ${INITDB_LOG_DIR}/logs; fi
+if [ ! -d ${INITDB_LOG_DIR}/config ]; then mkdir -p ${INITDB_LOG_DIR}/config; fi
 
 create_user() {
   sql_root_cli <<EOF
@@ -126,6 +128,10 @@ convert_table_stat_to_var() {
 }
 
 load_dense_data() {
+
+  if [ -z "$(command -v bcp)" ]; then export PATH=/opt/mssql-tools18/bin:$PATH; fi
+
+
     local TABLE_INST=${1:-${TABLE_INST:-1}}
     local TABLE_INST_NAME=$(sf_to_name $TABLE_INST)
     local y_insertstart
@@ -207,13 +213,13 @@ load_dense_data() {
         # run the bulk loaders
         # batch of 1M
         # -u trust certifcate
-        set -x
-        time bcp YCSB${y_tabletype^^}${TABLE_INST_NAME} in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d arcsrc -f ${INITDB_LOG_DIR}/03_${y_tabletype}table.fmt -b ${progress_interval_rows} | tee ${INITDB_LOG_DIR}/03_${y_tabletype}table.log
+	set -x
+	bcp "YCSB${y_tabletype^^}${TABLE_INST_NAME}" in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d arcsrc -f "${INITDB_LOG_DIR}/03_${y_tabletype}table.fmt" -b "${progress_interval_rows}" | tee ${INITDB_LOG_DIR}/03_${y_tabletype}table.log
         set +x
         echo "bcp log at ${INITDB_LOG_DIR}/03_${y_tabletype}table.log"
 
         # delete datafile
-        rm $datafile
+        # rm $datafile
         # move to the next chunk
         chunk_insertstart=$(( chunk_insertstart + chunk_size ))
         current_chunk_size=$(( y_recordcount - chunk_insertstart ))
@@ -715,7 +721,7 @@ load_ycsb() {
   local y_tablename="-p table=${fq_table_name}"
   # run
   pushd /opt/stage/ycsb/ycsb-jdbc-binding-0.18.0-SNAPSHOT/ >/dev/null
-  JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-* -maxdepth 0 ) \
+  #JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-* -maxdepth 0 ) \
   bin/ycsb.sh load jdbc -s -P workloads/workloada ${y_tablename} \
   -p db.driver=$SRCDB_JDBC_DRIVER \
   -p db.url=$SRCDB_JDBC_URL \
@@ -775,7 +781,7 @@ start_ycsb() {
     echo "table_name=$table_name tabletype=$tabletype record_count=$record_count field_count=$field_count _y_threads=${!_y_threads} _y_target=${!_y_target} _y_fieldlength=${!_y_fieldlength}"
 
     # run
-    JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-* -maxdepth 0 ) \
+    # JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-* -maxdepth 0 ) \
     bin/ycsb.sh run jdbc -s -P workloads/workloada -p table=${table_name} \
     -p db.driver=$SRCDB_JDBC_DRIVER \
     -p db.url=$SRCDB_JDBC_URL \
@@ -796,12 +802,12 @@ start_ycsb() {
     -p fieldcount=${field_count:-10} \
     -p fieldlength=${y_fieldlength:-100} \
     -threads ${!_y_threads:-1} \
-    -target ${!_y_target:-1} "${@}" >$PROG_DIR/logs/ycsb.$table_name.log 2>&1 &
+    -target ${!_y_target:-1} "${@}" >$INITDB_LOG_DIR/logs/ycsb.$table_name.log 2>&1 &
     
     YCSB_PID=$!
-    echo $YCSB_PID > $PROG_DIR/logs/ycsb.$table_name.pid
+    echo $YCSB_PID > $INITDB_LOG_DIR/logs/ycsb.$table_name.pid
     echo "ycsb $table_name pid $YCSB_PID"  
-    echo "ycsb $table_name log is at $PROG_DIR/logs/ycsb.$table_name.log"
+    echo "ycsb $table_name log is at $INITDB_LOG_DIR/logs/ycsb.$table_name.log"
     echo "ycsb $table_name can be killed with . ./demo/sqlserver/run-ycsb-sqlserver-source.sh; kill_ycsb)"
     done
 

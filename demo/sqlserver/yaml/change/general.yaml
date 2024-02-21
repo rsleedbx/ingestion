@@ -1,5 +1,5 @@
 license-path: /opt/stage/libs/replicant.lic
-data-dir: $(pwd)/logs
+data-dir: $$INTIDB_LOG_DIR/logs
 permission-validation: 
   enable: false
 #trace-log: #trace-log avail starting 23-05-31
