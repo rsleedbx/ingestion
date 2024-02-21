@@ -1,0 +1,8 @@
+type: DATABRICKS_LAKEHOUSE
+
+url: "${DBX_DATABRICKS_URL}"
+username: token
+password: "${DBX_PASSPHRASE}"
+host: "${DBX_HOST_NAME}"
+port: 443
+max-connections: 10

@@ -99,25 +99,25 @@ load_sparse_data_cnt() {
 convert_table_stat_to_var() {
   local table_stat_array
 
-  readarray -d ',' -t table_stat_array < <(echo -n $1)
-  table_name=${table_stat_array[0],,} 
+  readarray -d ',' -t table_stat_array < <(echo -n "$1")
+  table_name=${table_stat_array[0],,} # lowercase the tablename
   record_start=${table_stat_array[1]} 
   record_count=${table_stat_array[2]} 
   field_count=${table_stat_array[3]} 
 
-  if [[ ${table_stat_array[1]} == "NULL" ]]; then
+  if [[ ${table_stat_array[1]} == "NULL" ]] || [[ -z "${table_stat_array[1]}" ]]; then
     record_start=0
   else 
     record_start=$(( ${table_stat_array[1]} + 1 )) 
   fi   
 
-  if [[ ${table_stat_array[2]} == "NULL" ]]; then
+  if [[ ${table_stat_array[2]} == "NULL" ]] || [[ -z "${table_stat_array[2]}" ]]; then
     record_count=0
   else 
     record_count=$(( ${table_stat_array[2]} + 1 )) 
   fi   
   
-  if [[ ${table_stat_array[3]} == "NULL" ]]; then
+  if [[ ${table_stat_array[3]} == "NULL" ]] || [[ -z "${table_stat_array[3]}" ]]; then
     field_count=0
   else
     field_count=${table_stat_array[3]} 
@@ -144,7 +144,7 @@ load_dense_data() {
     local record_start=0
     local record_count=0
     local field_count=10
-    table_stat_array=$(cat /tmp/list_table_counts.csv | grep "^YCSB${y_tabletype^^}${TABLE_INST_NAME},")
+    table_stat_array=$(cat /tmp/list_table_counts.csv 2>/dev/null | grep "^YCSB${y_tabletype^^}${TABLE_INST_NAME},")
     convert_table_stat_to_var "$table_stat_array"
 
     # create table if not already exists
@@ -223,21 +223,29 @@ load_dense_data() {
     fi
 }
 
-# parms
-#   y_fieldlength
-#   y_fieldcount
-#   y_insertstart
-#   y_recordcount
+# make a data file in $INITDB_LOG_DIR
 make_ycsb_dense_data() {
-    local datafile=${1:-$(mktemp -p $INITDB_LOG_DIR)}
+    # process params
+    local param
+    local -i params_processed=0
+    while [[ $# -gt 0 ]]; do
+      [ "${1:0:1}" != '-' ] && break  # stop on first char without leading - 0:1=starting 0 for length 1 
+      [ "${1}" = '--' ] && break      # stop on --      
+      param="$1"; shift; ((params_processed++)) # process parameter
+      case "$param" in
+        -fs|--fillstart) local y_fillstart="$1"; shift; ((params_processed++)); ;;
+        -fe|--fillend) local y_fillend="$1"; shift; ((params_processed++)); ;;
+        -fc|--fieldcount) local y_fieldcount="$1"; shift; ((params_processed++)); ;;
+        -fl|--fieldlength) local fieldlength="$1"; shift; ((params_processed++)); ;;
+        -is|--insertstart) local insertstart="$1"; shift; ((params_processed++)); ;;
+        -rc|--recordcount) local recordcount="$1"; shift; ((params_processed++)); ;;
+        -df|--datafile) local datafile="$1"; shift; ((params_processed++)); ;;
+        *) echo "unknown flag '$param'"; return 1; ;;
+      esac
+    done
 
-    rm -rf $datafile >/dev/null 2>&1
-    #mkfifo ${datafile}
-    # hardcoded data dense generator
-    # seq 0 10000 | \
-    #    awk '{printf "%10d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d\n", \
-    #        $1,$1,$1,$1,$1,$1,$1,$1,$1,$1,$1}' > ${datafile}
-
+    # create tempfile
+    local datafile=${datafile:-$(mktemp -p ${INITDB_LOG_DIR:-/var/tmp})}
     # convert KMBGT suffix to numeric
     local y_fillstart=$( numfmt --from=auto ${y_fillstart:-1} )
     local y_fillend=$( numfmt --from=auto ${y_fillend:-3} )
@@ -246,6 +254,13 @@ make_ycsb_dense_data() {
     local chunk_insertstart=$( numfmt --from=auto ${chunk_insertstart:-0} )
     local chunk_recordcount=$( numfmt --from=auto ${chunk_recordcount:-10} )
 
+    rm -rf $datafile >/dev/null 2>&1
+    #mkfifo ${datafile}
+    # hardcoded data dense generator
+    # seq 0 10000 | \
+    #    awk '{printf "%10d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d,%0100d\n", \
+    #        $1,$1,$1,$1,$1,$1,$1,$1,$1,$1,$1}' > ${datafile}
+
     # 1 <= y_fillstart <= fillend <= fieldcount 
     if (( y_fillend > y_fieldcount )); then y_fillend=$y_fieldcount; fi
     if (( y_fillstart > y_fillend )); then y_fillend=$y_fieldcount; fi
@@ -253,13 +268,13 @@ make_ycsb_dense_data() {
     # generate data
     seq ${chunk_insertstart} $(( ${chunk_recordcount} - 1 )) | \
     awk "{printf \"%10d\",\$1; 
-    # prefix nulls if any
-    for (i=1;i<${y_fillstart};i++) printf \",\";
-    # data
-    for (;i<=${y_fillend};i++) printf \",%0${y_fieldlength}d\",\$1;
-    # trailing nulls if any
-    for (;i<=${y_fieldcount};i++) printf \",\";
-    printf \"\n\"}" > ${datafile}
+      # prefix nulls if any
+      for (i=1;i<${y_fillstart};i++) printf \",\";
+      # data
+      for (;i<=${y_fillend};i++) printf \",%0${y_fieldlength}d\",\$1;
+      # trailing nulls if any
+      for (;i<=${y_fieldcount};i++) printf \",\";
+      printf \"\n\"}" > ${datafile}
 }
 
 sql_cli() {
@@ -837,15 +852,18 @@ start_arcion() {
   local a_yamldir="${a_yamldir:-"./yaml/change"}"
   local JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-*/jre -maxdepth 0)
 
+  # check dst config 
   if [ ! -d "${a_yamldir}" ]; then echo "$a_yamldir should be a dir." >&2; return 1; fi
+  if [ ! -f ${a_yamldir}/dst_${DSTDB_TYPE}.yaml ]; then echo " ${a_yamldir}/dst_${DSTDB_TYPE}.yaml" >&2; return 1; fi
+  if [ ! -f ${a_yamldir}/applier_${DSTDB_TYPE}.yaml ]; then echo "${a_yamldir}/applier_${DSTDB_TYPE}.yaml not found." >&2; return 1; fi
 
   $ARCION_HOME/bin/$ARCION_BIN "${a_repltype}" \
-    $(heredoc_file ${a_yamldir}/src.yaml                     >config/src.yaml        | echo config/src.yaml) \
-    $(heredoc_file ${a_yamldir}/dst_null.yaml                >config/dst.yaml        | echo config/dst.yaml) \
-    --general $(heredoc_file ${a_yamldir}/general.yaml       >config/general.yaml    | echo config/general.yaml) \
-    --extractor $(heredoc_file ${a_yamldir}/extractor.yaml   >config/extractor.yaml  | echo config/extractor.yaml) \
-    --filter $(heredoc_file ${a_yamldir}/filter.yaml         >config/filter.yaml     | echo config/filter.yaml) \
-    --applier $(heredoc_file ${a_yamldir}/applier_null.yaml  >config/applier.yaml    | echo config/applier.yaml) \
+    $(heredoc_file ${a_yamldir}/src.yaml                              >config/src.yaml        | echo config/src.yaml) \
+    $(heredoc_file ${a_yamldir}/dst_${DSTDB_TYPE}.yaml                >config/dst.yaml        | echo config/dst.yaml) \
+    --applier $(heredoc_file ${a_yamldir}/applier_${DSTDB_TYPE}.yaml  >config/applier.yaml    | echo config/applier.yaml) \
+    --general $(heredoc_file ${a_yamldir}/general.yaml                >config/general.yaml    | echo config/general.yaml) \
+    --extractor $(heredoc_file ${a_yamldir}/extractor.yaml            >config/extractor.yaml  | echo config/extractor.yaml) \
+    --filter $(heredoc_file ${a_yamldir}/filter.yaml                  >config/filter.yaml     | echo config/filter.yaml) \
     --overwrite --id $$ --replace >$PROG_DIR/logs/arcion.log 2>&1 &
   
   ARCION_PID=$!

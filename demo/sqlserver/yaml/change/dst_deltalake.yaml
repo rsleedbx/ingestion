@@ -1,0 +1,13 @@
+type: DATABRICKS_DELTALAKE
+
+url: "${DBX_SPARK_URL}"
+username: token
+password: "${DBX_PASSPHRASE}"
+host: "${DBX_HOST_NAME}"
+port: 443
+max-connections: 10
+
+stage:
+  type: DATABRICKS_DBFS
+  root-dir: replicate-stage/databricks-stage
+
