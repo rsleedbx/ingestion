@@ -3,7 +3,7 @@ type: DATABRICKS_DELTALAKE
 url: "${DBX_SPARK_URL}"
 username: token
 password: "${DBX_ACCESS_TOKEN}"
-host: "${DBX_HOST_NAME}"
+host: "${DBX_HOSTNAME}"
 port: 443
 max-connections: 10
 
