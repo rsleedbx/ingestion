@@ -7,6 +7,12 @@
 # start and stop 
 #   https://learn.microsoft.com/en-us/sql/linux/sql-server-linux-start-stop-restart-sql-server-services?view=sql-server-ver16&source=recommendations
 
+if [ -z "$(dpkg -l apt-utils 2>/dev/null)" ]; then 
+    echo "installing apt-utils"    
+    sudo apt-get install -y apt-utils
+else
+    echo "apt-utils already installed"    
+fi
 
 if [ -z "$(dpkg -l mssql-server 2>/dev/null)" ]; then 
 
