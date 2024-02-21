@@ -27,6 +27,7 @@ if [ -z "$(dpkg -l mssql-server 2>/dev/null)" ]; then
     curl https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
     curl https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
     sudo apt-get update -y
+    sudo chmod a+x /var/opt/mssql
 else
     echo "mssql-server already installed"
 fi
@@ -47,6 +48,7 @@ else
     echo "unixodbc-dev alrady installed"    
 fi
 
+if [ ! -f /var/opt/mssql/mssql.conf ]; then 
     sudo mkdir -p /var/opt/mssql
     cat <<EOF | sudo tee /var/opt/mssql/mssql.conf 
     [sqlagent]
@@ -64,4 +66,6 @@ EOF
     sudo MSSQL_SA_PASSWORD=Passw0rd /opt/mssql/bin/mssql-conf set-sa-password
     sudo systemctl start mssql-server
     echo "sqlserver installed and started"
-
+else
+    echo "sqlserver already started" 
+fi

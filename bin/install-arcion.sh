@@ -2,22 +2,23 @@
 
 LOGNAME=$(logname 2>/dev/null)
 LOGNAME=${LOGNAME:-root}
+ARCION_HOME=${ARCION_HOME:-/opt/stage/arcion}
 
-if [ ! -d /opt/stage/arcion ]; then
-    sudo mkdir -p /opt/stage/arcion && chown "${LOGNAME}" /opt/stage/arcion
+if [ ! -d $ARCION_HOME ]; then
+    sudo mkdir -p $ARCION_HOME && chown "${LOGNAME}" $ARCION_HOME
 fi
 
-if [ ! -d /opt/stage/arcion/replicant-cli/bin ]; then
-  cd /opt/stage/arcion && curl -O --location https://arcion-releases.s3.us-west-1.amazonaws.com/general/replicant/replicant-cli-24.01.25.1.zip
+if [ ! -d $ARCION_HOME/replicant-cli/bin ]; then
+  cd $ARCION_HOME && curl -O --location https://arcion-releases.s3.us-west-1.amazonaws.com/general/replicant/replicant-cli-24.01.25.1.zip
   unzip -q replicant-cli-*.zip
   rm replicant-cli-*.zip
-  echo "arcion  /opt/stage/arcion/replicant-cli/bin/replicant downloaded"
+  echo "arcion  $ARCION_HOME/replicant-cli/bin/replicant downloaded"
 else
-  echo "arcion  /opt/stage/arcion/replicant-cli/bin/replicant found"
+  echo "arcion  $ARCION_HOME/replicant-cli/bin/replicant found"
 fi
 
 # copy the jar and jdbc
-for inst in $(find /opt/stage/arcion -name "replicant" -o -name "replicate"); do
+for inst in $(find $ARCION_HOME -name "replicant" -o -name "replicate"); do
   dir="$(dirname $(dirname $inst))/lib"
   echo "checking jar(s) in $dir for updates"
 
@@ -28,3 +29,24 @@ for inst in $(find /opt/stage/arcion -name "replicant" -o -name "replicate"); do
   done
 done 
 
+# setup the license
+if [ ! -f $ARCION_HOME/replicant.lic ]; then
+  if [ -n "$ARCION_LICENSE" ]; then
+    echo "setting $ARCION_HOME/replicant.lic from \$ARCION_LICENSE"
+    # try if gzip
+    echo "$ARCION_LICENSE" | base64 -d | gzip -d > ${ARCION_HOME}/replicant.lic 2>/dev/null
+    # try non gzip
+    if [ "$?" != 0 ]; then
+        echo "$ARCION_LICENSE" | base64 -d > ${ARCION_HOME}/replicant.lic 2>/dev/null
+    fi
+    if [ -s ${ARCION_HOME}/replicant.lic ]; then 
+      cat ${ARCION_HOME}/replicant.lic
+    else
+      echo "Error: ARCION_LICENSE not valid"
+    fi
+  else
+    echo "Error: Arcion license not found and $ARCION_LICENSE not set"
+  fi
+else
+  echo "Arcion license found"
+fi
