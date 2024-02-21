@@ -10,6 +10,7 @@
 
 if [ -z "$(dpkg -l mssql-server 2>/dev/null)" ]; then 
 
+    echo "installing mssql-server"
     curl https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
     sudo add-apt-repository -y "$(wget -qO- https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/mssql-server-2022.list)"
     sudo apt-get update -y 
@@ -20,8 +21,25 @@ if [ -z "$(dpkg -l mssql-server 2>/dev/null)" ]; then
     curl https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
     curl https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
     sudo apt-get update -y
+else
+    echo "mssql-server already installed"
+fi
+
+if [ -z "$(dpkg -l mssql-tools18 2>/dev/null)" ]; then 
+    echo "installing mssql-tools18"    
     # this one has yes interaction
     sudo apt-get install -y mssql-tools18 unixodbc-dev
+else
+    echo "mssql-tools18 already installed"    
+fi
+
+if [ -z "$(dpkg -l unixodbc-dev 2>/dev/null)" ]; then 
+    echo "installing unixodbc-dev"    
+    # this one has yes interaction
+    sudo apt-get install -y unixodbc-dev
+else
+    echo "unixodbc-dev alrady installed"    
+fi
 
     sudo mkdir -p /var/opt/mssql
     cat <<EOF | sudo tee /var/opt/mssql/mssql.conf 
@@ -40,6 +58,4 @@ EOF
     sudo MSSQL_SA_PASSWORD=Passw0rd /opt/mssql/bin/mssql-conf set-sa-password
     sudo systemctl start mssql-server
     echo "sqlserver installed and started"
-else
-    echo "sqlserver found"
-fi
+

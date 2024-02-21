@@ -1,4 +1,4 @@
-#!/usr/env/bin/bash
+#!/usr/bin/env bash
 
 if [ -z "${BASH_SOURCE}" ]; then 
   echo "Please invoke using bash" 
@@ -8,6 +8,7 @@ fi
 PROG_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 INITDB_LOG_DIR=${PROG_DIR}/config
 (return 0 2>/dev/null) && export SCRIPT_SOURCED=1 || export SCRIPT_SOURCED=0
+if [ ! -d ${INITDB_LOG_DIR} ]; then mkdir -p ${INITDB_LOG_DIR}; fi
 
 create_user() {
   sql_root_cli <<EOF
@@ -278,6 +279,7 @@ make_ycsb_dense_data() {
 }
 
 sql_cli() {
+  if [ -z "$(command -v sqlcmd)" ]; then export PATH=/opt/mssql-tools18/bin:$PATH; fi
   # when stdin is redirected
   # -I enable quite identified
   # -h-1 remove header and -----
@@ -294,6 +296,7 @@ sql_cli() {
 }
 
 sql_root_cli() {
+  if [ -z "$(command -v sqlcmd)" ]; then export PATH=/opt/mssql-tools18/bin:$PATH; fi
   # when stdin is redirected
   # -I enable quite identified
   # -h-1 remove header and -----
@@ -310,6 +313,7 @@ sql_root_cli() {
 }
 
 jdbc_root_cli() {
+  if [ -z "$(command -v jsqsh)" ]; then export PATH=/opt/stage/bin/jsqsh-dist-3.0-SNAPSHOT/bin$:$PATH; fi
   # when stdin is redirected
   # -e echo sql commands
   # -n batch mode and don't save in history
@@ -337,6 +341,7 @@ jdbc_root_cli() {
 }
 
 jdbc_cli() {
+  if [ -z "$(command -v jsqsh)" ]; then export PATH=/opt/stage/bin/jsqsh-dist-3.0-SNAPSHOT/bin$:$PATH; fi
   # when stdin is redirected
   # -e echo sql commands
   # -n batch mode and don't save in history
