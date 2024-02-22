@@ -1,4 +1,4 @@
-license-path: /opt/stage/arion/replicant.lic
+license-path: /opt/stage/arcion/replicant.lic
 data-dir: $ARCION_LOG_DIR
 permission-validation: 
   enable: false
