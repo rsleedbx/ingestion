@@ -896,9 +896,16 @@ start_arcion() {
   heredoc_file ${a_yamldir}/filter.yaml                 >${ARCION_CFG_DIR}/filter.yaml  
   if [ -f ${a_yamldir}/map_${DSTDB_TYPE}.yaml ]; then heredoc_file ${a_yamldir}/map_${DSTDB_TYPE}.yaml > ${ARCION_CFG_DIR}/map.yaml; fi
 
+  # 
+  local WRITE_MODE="--replace"
+  if [[ "${a_repltype}" = "real-time" ]]; then local WRITE_MODE="--merge"; fi
+
+  local MAPPER=""
+  if [ -f "${ARCION_CFG_DIR}/map.yaml" ]; then MAPPER="--map ${ARCION_CFG_DIR}/map.yaml"; fi
+
   # run arcion
-  cd $ARCION_CFG_DIR
-  JAVA_HOME=$JAVA_HOME \
+  set -x 
+  cd $ARCION_CFG_DIR; JAVA_HOME=$JAVA_HOME \
   $ARCION_HOME/bin/$ARCION_BIN "${a_repltype}" \
                 ${ARCION_CFG_DIR}/src.yaml \
                 ${ARCION_CFG_DIR}/dst.yaml \
@@ -906,9 +913,10 @@ start_arcion() {
     --general   ${ARCION_CFG_DIR}/general.yaml \
     --extractor ${ARCION_CFG_DIR}/extractor.yaml \
     --filter    ${ARCION_CFG_DIR}/filter.yaml \
-    $( [ -f "${ARCION_CFG_DIR}/map.yaml" ] && echo "--map ${ARCION_CFG_DIR}/map.yaml" ) \
-    --overwrite --id $NINE_CHAR_ID --replace >${ARCION_CFG_DIR}/arcion.log 2>&1 &
-  
+    $MAPPER \
+    --overwrite --id $NINE_CHAR_ID $WRITE_MODE >${ARCION_CFG_DIR}/arcion.log 2>&1 &
+    set +x
+
   ARCION_PID=$!
   echo $ARCION_PID > $ARCION_CFG_DIR/arcion.pid
   echo "arcion pid $ARCION_PID"  
