@@ -72,7 +72,9 @@ if [ ! -f /var/opt/mssql/mssql.demo ]; then
 EOF
     sudo MSSQL_SA_PASSWORD=Passw0rd /opt/mssql/bin/mssql-conf set-sa-password
     sudo systemctl start mssql-server
-    echo "sqlserver installed and started"
+    echo "sqlserver installed and started.  Waiting 60 sec"
+    sleep 60
+    ps -aef | grep '/opt/mssql/bin/sqlservr'
 else
     echo "sqlserver already started" 
 fi

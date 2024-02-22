@@ -43,9 +43,11 @@ if [ ! -f $ARCION_HOME/replicant.lic ]; then
       cat ${ARCION_HOME}/replicant.lic
     else
       echo "Error: ARCION_LICENSE not valid"
+      exit 1
     fi
   else
     echo "Error: Arcion license not found and $ARCION_LICENSE not set"
+    exit 2
   fi
 else
   echo "Arcion license found"
