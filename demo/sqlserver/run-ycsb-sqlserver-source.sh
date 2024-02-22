@@ -850,6 +850,11 @@ replicant_or_replicate() {
   return 1
 }
 
+run_arcion() {
+  java_home
+  $( [ -n "$JAVA_HOME" ] && echo JAVA_HOME=$JAVA_HOME) $ARCION_HOME/bin/$ARCION_BIN "$@"
+}
+
 # set ARCION_VERSION
 arcion_version() {
   replicant_or_replicate || return 1
