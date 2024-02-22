@@ -410,8 +410,12 @@ port_db() {
     # jdbc params for ycsb and jsqsh
     if [ -n "$(netstat -an | grep -i listen | grep 1433)" ]; then
       export SRCDB_PORT=${port}
-    else
+    elif [ -n "$(command -v podman)" ]; then
       export SRCDB_PORT=$(podman port --all | grep "${port}/tcp" | head -n 1 | cut -d ":" -f 2)
+    fi
+    
+    if [ -z "$SRCDB_PORT" ]; then
+      echo "Error: SQL Server is not running." >&2; return 1
     fi
 
     export SRCDB_HOST=127.0.0.1

@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
 
+LOGNAME=$(logname 2>/dev/null)
+LOGNAME=${LOGNAME:-root}
+
+if [ ! -d /var/opt/mssql ]; then
+    sudo mkdir -p /var/opt/mssql && chown "${LOGNAME}" /var/opt/mssql
+fi
+
 # install 
 #  https://learn.microsoft.com/en-us/sql/linux/quickstart-install-connect-ubuntu?view=sql-server-ver16&tabs=ubuntu2004
 # setup 
@@ -48,8 +55,8 @@ else
     echo "unixodbc-dev alrady installed"    
 fi
 
-if [ ! -f /var/opt/mssql/mssql.conf ]; then 
-    sudo mkdir -p /var/opt/mssql
+if [ ! -f /var/opt/mssql/mssql.demo ]; then 
+    touch /var/opt/mssql/mssql.demo
     cat <<EOF | sudo tee /var/opt/mssql/mssql.conf 
     [sqlagent]
     enabled = true
