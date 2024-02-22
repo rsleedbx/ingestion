@@ -898,7 +898,7 @@ start_arcion() {
 
   # 
   local WRITE_MODE="--replace"
-  if [[ "${a_repltype}" = "real-time" ]]; then local WRITE_MODE="--merge"; fi
+  if [[ "${a_repltype}" = "real-time" ]]; then local WRITE_MODE="--append-existing"; fi
 
   local MAPPER=""
   if [ -f "${ARCION_CFG_DIR}/map.yaml" ]; then MAPPER="--map ${ARCION_CFG_DIR}/map.yaml"; fi
