@@ -881,8 +881,12 @@ start_arcion() {
   local NINE_CHAR_ID=$(nine_char_id)
   local ARCION_CFG_DIR=$LOG_DIR/$NINE_CHAR_ID
   local ARCION_LOG_DIR=$ARCION_CFG_DIR
+  local ARCION_META_DIR=$ARCION_CFG_DIR/metadata
+  local ARCION_NULL_DIR=$ARCION_CFG_DIR/null
   mkdir -p $ARCION_LOG_DIR
   mkdir -p $ARCION_CFG_DIR
+  mkdir -p $ARCION_META_DIR
+  mkdir -p $ARCION_NULL_DIR
 
   local DBX_DBFS_ROOT=$(echo $DBX_DBFS_ROOT | tr '.@' '_')
   local DBX_USERNAME=$(echo $DBX_USERNAME | tr '.@' '_')
@@ -896,12 +900,20 @@ start_arcion() {
   heredoc_file ${a_yamldir}/filter.yaml                 >${ARCION_CFG_DIR}/filter.yaml  
   if [ -f ${a_yamldir}/map_${DSTDB_TYPE}.yaml ]; then heredoc_file ${a_yamldir}/map_${DSTDB_TYPE}.yaml > ${ARCION_CFG_DIR}/map.yaml; fi
 
-  # 
+  # write mode
   local WRITE_MODE="--replace"
   if [[ "${a_repltype}" = "real-time" ]]; then local WRITE_MODE="--append-existing"; fi
 
+  # mapper
   local MAPPER=""
   if [ -f "${ARCION_CFG_DIR}/map.yaml" ]; then MAPPER="--map ${ARCION_CFG_DIR}/map.yaml"; fi
+
+  # metadata
+  local METADATA=""
+  if [[ "${DSTDB_TYPE,,}" = 'null' ]]; then 
+      heredoc_file ${a_yamldir}/metadata.yaml >${ARCION_CFG_DIR}/metadata.yaml  
+      METADATA="--metadata ${ARCION_CFG_DIR}/metadata.yaml"; 
+  fi
 
   # run arcion
   set -x 
@@ -913,7 +925,7 @@ start_arcion() {
     --general   ${ARCION_CFG_DIR}/general.yaml \
     --extractor ${ARCION_CFG_DIR}/extractor.yaml \
     --filter    ${ARCION_CFG_DIR}/filter.yaml \
-    $MAPPER \
+    $MAPPER $METADATA\
     --overwrite --id $NINE_CHAR_ID $WRITE_MODE >${ARCION_CFG_DIR}/arcion.log 2>&1 &
     set +x
 

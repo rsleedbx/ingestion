@@ -1,0 +1,9 @@
+type: SQLITE
+
+connection:
+    host:
+    port:
+    path: "${ARCION_META_DIR}"
+    username:
+    password:
+    max-connections: 30
