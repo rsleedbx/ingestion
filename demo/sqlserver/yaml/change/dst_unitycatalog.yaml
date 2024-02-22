@@ -11,3 +11,4 @@ stage:
   type: DATABRICKS_DBFS
   root-dir: "${DBX_DBFS_ROOT}"
   use-credentials: true
+  file-format: CSV # CSV is produced, so specific CSV
