@@ -6,3 +6,8 @@ password: "${DBX_ACCESS_TOKEN}"
 host: "${DBX_HOSTNAME}"
 port: 443
 max-connections: 10
+
+stage:
+  type: DATABRICKS_DBFS
+  root-dir: "${DBX_DBFS_ROOT}"
+  use-credentials: true

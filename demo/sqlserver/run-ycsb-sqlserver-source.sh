@@ -875,9 +875,12 @@ start_arcion() {
   # cfg dir has log dir using nine_char_id 
   local NINE_CHAR_ID=$(nine_char_id)
   local ARCION_CFG_DIR=$LOG_DIR/$NINE_CHAR_ID
-  local ARCION_LOG_DIR=$ARCION_CFG_DIR/$NINE_CHAR_ID
+  local ARCION_LOG_DIR=$ARCION_CFG_DIR
   mkdir -p $ARCION_LOG_DIR
   mkdir -p $ARCION_CFG_DIR
+
+  local DBX_DBFS_ROOT=$(echo $DBX_DBFS_ROOT | tr '.@' '_')
+  local DBX_USERNAME=$(echo $DBX_USERNAME | tr '.@' '_')
 
   # prepare the YAML file
   heredoc_file ${a_yamldir}/src.yaml                    >${ARCION_CFG_DIR}/src.yaml      
@@ -886,6 +889,7 @@ start_arcion() {
   heredoc_file ${a_yamldir}/general.yaml                >${ARCION_CFG_DIR}/general.yaml 
   heredoc_file ${a_yamldir}/extractor.yaml              >${ARCION_CFG_DIR}/extractor.yaml 
   heredoc_file ${a_yamldir}/filter.yaml                 >${ARCION_CFG_DIR}/filter.yaml  
+  if [ -f ${a_yamldir}/map_${DSTDB_TYPE}.yaml ]; then heredoc_file ${a_yamldir}/map_${DSTDB_TYPE}.yaml > ${ARCION_CFG_DIR}/map.yaml; fi
 
   # run arcion
   cd $ARCION_CFG_DIR
@@ -897,6 +901,7 @@ start_arcion() {
     --general   ${ARCION_CFG_DIR}/general.yaml \
     --extractor ${ARCION_CFG_DIR}/extractor.yaml \
     --filter    ${ARCION_CFG_DIR}/filter.yaml \
+    $( [ -f "${ARCION_CFG_DIR}/map.yaml" ] && echo "--map ${ARCION_CFG_DIR}/map.yaml" ) \
     --overwrite --id $NINE_CHAR_ID --replace >${ARCION_CFG_DIR}/arcion.log 2>&1 &
   
   ARCION_PID=$!

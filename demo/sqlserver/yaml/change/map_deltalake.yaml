@@ -1,0 +1,4 @@
+rules:
+  [ $(printf "%s\n" ${DBX_USERNAME:-${SRCDB_DB}} | paste -sd,) ]:
+    source:
+    - [ $(printf "%s\n" ${SRCDB_DB} ${SRCDB_SCHEMA} | paste -sd,) ]

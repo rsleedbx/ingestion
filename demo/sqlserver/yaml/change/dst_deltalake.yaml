@@ -9,5 +9,7 @@ max-connections: 10
 
 stage:
   type: DATABRICKS_DBFS
-  root-dir: replicate-stage/databricks-stage
+  root-dir: "${DBX_DBFS_ROOT}"
+  use-credentials: true
+  file-format: CSV
 
