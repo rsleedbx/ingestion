@@ -858,6 +858,7 @@ start_ycsb() {
     -p updateproportion=1 \
     -p fieldcount=${field_count:-10} \
     -p fieldlength=${y_fieldlength:-100} \
+    -p jdbc.prependtimestamp=true \
     -threads ${!_y_threads:-1} \
     -target ${!_y_target:-1} "${@}" >$LOG_DIR/ycsb.$table_name.log 2>&1 &
     

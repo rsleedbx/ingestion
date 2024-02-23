@@ -10,22 +10,6 @@ Demo is not for for:
 - Data value conversion
 - HA and resilience testing 
 
-## Instructions
-
-1. Click `Run All`
-2. SQL Server to Null 
-   1. Enter `Arcion License`
-   2. Look at snapshot performance
-   3. Look at cdc performance
-3. SQL Serer to Deltalake  
-   1. Enter Access Token
-   2. Click `Deltalake` target
-   3. Click `Run All`
-   4. Look at snapshot performance
-   5. Look at cdc performance
-   
-## Demo Environment
-
 ### Infrastructures
 
 The following the demo environment.
