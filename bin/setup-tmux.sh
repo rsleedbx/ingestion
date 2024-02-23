@@ -1,40 +1,42 @@
-#!/usr/env/bin bash
+#!/usr/bin/env bash
 
-orarac_tmux() {
+# to delete
+#   tmux kill-session -t ${SESSION_NAME}
+setup_tmux() {
 
-WIN=${1:-orarac}
+local LOGNAME=$(logname 2>/dev/null)
+local LOGNAME=${LOGNAME:-root}
+local SESSION_NAME=${1:-$LOGNAME}
 
-exists=$( tmux ls | grep "^${WIN}" )
+exists=$( tmux ls | grep "^${SESSION_NAME}" )
 if [ -z "${exists}" ]; then
     # windows
-    tmux new-session -s $WIN -d
+    tmux new-session -s ${SESSION_NAME} -d
     tmux set -g mouse on
     tmux bind-key C-m set-option -g mouse \; display-message 'Mouse #{?mouse,on,off}'
-    tmux rename-window -t $WIN.0 console
-    tmux new-window    -t $WIN:1 -n utils 
+    tmux rename-window -t ${SESSION_NAME}:0 console
+    tmux new-window    -t ${SESSION_NAME}:1 -n "trace"
+    tmux new-window    -t ${SESSION_NAME}:2 -n "error"
+    tmux new-window    -t ${SESSION_NAME}:3 -n "logdir"
+    tmux new-window    -t ${SESSION_NAME}:4 -n "ycsb"
+    tmux new-window    -t ${SESSION_NAME}:5 -n "sqluser"
+    tmux new-window    -t ${SESSION_NAME}:6 -n "sqlroot"
 
-    # windows 0 to run commands
-                                    # 0.0 console
-    tmux split-window -v -t $WIN:0  # 0.1 ycsb
-    tmux split-window -v -t $WIN:0  # 0.2 arcion trace.log
-    tmux split-window -v -t $WIN:0  # 0.3 arcion error.log
-    tmux split-window -v -t $WIN:0  # 0.4 ssh to oracle
-
-    
     # suggested commands add Enter
-    tmux send-keys -t $WIN:0.0 "# ./arcdemo.sh full mysql postgresql"  
-    tmux send-keys -t $WIN:0.1 "# /scripts/bin/ycsb-run.sh" 
-    tmux send-keys -t $WIN:0.2 "# tail arcion trace.log"
-    tmux send-keys -t $WIN:0.3 "# tail arcion error log"
-    tmux send-keys -t $WIN:0.4 "# ssh to oracle"
+    tmux send-keys -t ${SESSION_NAME}:0 "htop" enter  
+    tmux send-keys -t ${SESSION_NAME}:1 "# trace.log" 
+    tmux send-keys -t ${SESSION_NAME}:2 "# tail arcion trace.log"
+    tmux send-keys -t ${SESSION_NAME}:3 "# tail arcion error log"
+    tmux send-keys -t ${SESSION_NAME}:4 "# ycsb"
+    tmux send-keys -t ${SESSION_NAME}:5 "# sqluser"
+    tmux send-keys -t ${SESSION_NAME}:6 "# sqluser"
  
-    # activate $WIN:0
-    tmux select-window -t $WIN:0.0
-    tmux select-pane -t $WIN:0.0
+    # activate ${SESSION_NAME}:0
+    tmux select-window -t ${SESSION_NAME}:0
     #
-    echo "tmux session ready. new session created"
+    echo "tmux session ready. new session $SESSION_NAME created"
 else
-    echo "tmux session ready. session already exists"
+    echo "tmux session ready. session $SESSION_NAME already exists"
 fi
-tmux attach-session -t $WIN
+tmux attach-session -t ${SESSION_NAME}
 }

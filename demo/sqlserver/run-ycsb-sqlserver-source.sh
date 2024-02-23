@@ -13,6 +13,16 @@ CONFIG_DIR=/var/tmp/sqlserver/config
 if [ ! -d ${LOG_DIR} ]; then mkdir -p ${LOG_DIR}; fi
 if [ ! -d ${CONFIG_DIR} ]; then mkdir -p ${CONFIG_DIR}; fi
 
+send_command_tmux_window() {
+  local session_name=${1}
+  local window_name=${2}
+  local command=${3}
+  tmux respawn-window -t ${session_name}:${window_name} -k 
+  if [ -n "$command" ]; then 
+    tmux send-keys -t ${session_name}:${window_name} "${command}" enter
+  fi
+}
+
 nine_char_id() {
     printf "%09x\n" "$(( $(date +%s%N) / 100000000 ))"
 }
@@ -299,7 +309,7 @@ sql_cli() {
   # -w width of the screen
   if [ ! -t 0 ]; then
     local sql_cli_batch_mode="-h-1 -W -s , -w 1024"
-    cat <(echo "set NOCOUNT ON") - | \
+    cat <(printf "set NOCOUNT ON;\ngo\n") - | \
     sqlcmd -I -d "$SRCDB_DB" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -C $sql_cli_batch_mode "$@"
   else
     sqlcmd -I -d "$SRCDB_DB" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -C $sql_cli_batch_mode "$@"
@@ -316,11 +326,30 @@ sql_root_cli() {
   # -w width of the screen
   if [ ! -t 0 ]; then
     local sql_cli_batch_mode="-h-1 -W -s , -w 1024"
-    cat <(echo "set NOCOUNT ON") - | \
+    cat <(printf "set NOCOUNT ON;\ngo\n") - | \
     sqlcmd -I -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ROOT_USER}" -P "${SRCDB_ROOT_PW}" -C $sql_cli_batch_mode "$@"
   else
     sqlcmd -I -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ROOT_USER}" -P "${SRCDB_ROOT_PW}" -C $sql_cli_batch_mode "$@"
   fi
+}
+
+# wait for db to be up
+ping_sql_cli() {
+  local -i max_wait=${1:-10}
+  local -i count=0
+  local -i rc=1
+  while (( (rc != 0) && (count < max_wait) )); do
+    echo "select 1;" | sql_cli > /dev/null
+    rc=${PIPESTATUS[1]}
+    if (( rc == 0 )); then 
+      break
+    else
+      count=$(( count + 1 ))
+      echo "$count: waiting for db"
+      sleep 1
+    fi 
+  done
+  return $rc
 }
 
 jdbc_root_cli() {
@@ -349,6 +378,27 @@ jdbc_root_cli() {
     --user "$SRCDB_ROOT_USER" \
     --password "$SRCDB_ROOT_PW" "$@"
   fi
+}
+
+# setup 2GB RAM
+set_sqlserver_ram() {
+  local DBX_USERNAME=${1}
+  sql_root_cli <<'EOF'
+sp_configure 'show advanced options', 1
+GO
+RECONFIGURE;
+GO
+sp_configure 'max server memory', 2048;
+GO
+RECONFIGURE;
+GO  
+EOF
+
+  # setup tmux
+  set -x
+  send_command_tmux_window "$DBX_USERNAME" "sqluser" "/opt/mssql-tools18/bin/sqlcmd -I -d $SRCDB_DB -S $SRCDB_HOST,$SRCDB_PORT -U ${SRCDB_ARC_USER} -P ${SRCDB_ARC_PW} -C"
+  send_command_tmux_window "$DBX_USERNAME" "sqlroot" "/opt/mssql-tools18/bin/sqlcmd -I -d $SRCDB_DB -S $SRCDB_HOST,$SRCDB_PORT -U ${SRCDB_ROOT_USER} -P ${SRCDB_ROOT_PW} -C"
+  set +
 }
 
 jdbc_cli() {
@@ -822,6 +872,8 @@ start_ycsb() {
 
     popd >/dev/null
 
+    # setup tmux
+    send_command_tmux_window "$DBX_USERNAME" "ycsb" "cd ${LOG_DIR}; tail -f ycsb.*.log"
   }
 
 
@@ -837,10 +889,13 @@ wait_log() {
   done
 }
 
-java_home() {
+set_arcion_java_home() {
   if [ "$(java -version 2>&1 | head -n 1 | awk '{print $NF}' | sed s/\"// | awk -F. '{printf "%s.%s",$1,$2}')" != "1.8" ]; then  
-    export JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-* -maxdepth 0 )
+    echo "default java is not 1.8."
+    export ARCION_JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-* -maxdepth 0 )
+    echo "setting ARCION_JAVA_HOME to $ARCION_JAVA_HOME"
   fi
+  echo $ARCION_JAVA_HOME
 }
 
 # set JAVA_HOME ARCION_HOME ARCION_BIN
@@ -855,8 +910,8 @@ replicant_or_replicate() {
 }
 
 run_arcion() {
-  java_home
-  $( [ -n "$JAVA_HOME" ] && echo JAVA_HOME=$JAVA_HOME) $ARCION_HOME/bin/$ARCION_BIN "$@"
+  JAVA_HOME="$ARCION_JAVA_HOME" \
+  $ARCION_HOME/bin/$ARCION_BIN "$@"
 }
 
 # set ARCION_VERSION
@@ -874,7 +929,6 @@ start_arcion() {
   replicant_or_replicate
   local a_repltype="${a_repltype:-"real-time"}"   # snapshot real-time full
   local a_yamldir="${a_yamldir:-"./yaml/change"}"
-  local JAVA_HOME=$(java_home)
 
   # check dst config 
   if [ ! -d "${a_yamldir}" ]; then echo "$a_yamldir should be a dir." >&2; return 1; fi
@@ -921,7 +975,7 @@ start_arcion() {
 
   # run arcion
   set -x 
-  cd $ARCION_CFG_DIR; JAVA_HOME=$JAVA_HOME \
+  cd $ARCION_CFG_DIR; JAVA_HOME="$ARCION_JAVA_HOME" \
   $ARCION_HOME/bin/$ARCION_BIN "${a_repltype}" \
                 ${ARCION_CFG_DIR}/src.yaml \
                 ${ARCION_CFG_DIR}/dst.yaml \
@@ -940,6 +994,11 @@ start_arcion() {
   echo "arcion log is at $ARCION_CFG_DIR"
   echo "arcion can be killed with . ./demo/sqlserver/run-ycsb-sqlserver-source.sh; kill_arcion)"
 
+  # setup tmux
+  send_command_tmux_window "$DBX_USERNAME" "console" "cd ${ARCION_LOG_DIR}; while [ ! -f arcion.log ]; do sleep 1; echo sleep 1; done; tail -f arcion.log"
+  send_command_tmux_window "$DBX_USERNAME" "trace" "cd ${ARCION_LOG_DIR}; while [ ! -f ${NINE_CHAR_ID}/trace.log ]; do sleep 1; echo sleep 1; done; tail -f ${NINE_CHAR_ID}/trace.log"
+  send_command_tmux_window "$DBX_USERNAME" "error" "cd ${ARCION_LOG_DIR}; while [ ! -f ${NINE_CHAR_ID}/error_trace.log ]; do sleep 1; echo sleep 1; done; tail -f ${NINE_CHAR_ID}/error_trace.log"
+  send_command_tmux_window "$DBX_USERNAME" "logdir" "cd ${ARCION_LOG_DIR}"
 }
 
 # change

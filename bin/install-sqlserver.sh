@@ -3,10 +3,6 @@
 LOGNAME=$(logname 2>/dev/null)
 LOGNAME=${LOGNAME:-root}
 
-if [ ! -d /var/opt/mssql ]; then
-    sudo mkdir -p /var/opt/mssql && chown "${LOGNAME}" /var/opt/mssql
-fi
-
 # install 
 #  https://learn.microsoft.com/en-us/sql/linux/quickstart-install-connect-ubuntu?view=sql-server-ver16&tabs=ubuntu2004
 # setup 
@@ -56,7 +52,7 @@ else
 fi
 
 if [ ! -f /var/opt/mssql/mssql.demo ]; then 
-    touch /var/opt/mssql/mssql.demo
+    sudo touch /var/opt/mssql/mssql.demo
     cat <<EOF | sudo tee /var/opt/mssql/mssql.conf 
     [sqlagent]
     enabled = true
@@ -72,9 +68,7 @@ if [ ! -f /var/opt/mssql/mssql.demo ]; then
 EOF
     sudo MSSQL_SA_PASSWORD=Passw0rd /opt/mssql/bin/mssql-conf set-sa-password
     sudo systemctl start mssql-server
-    echo "sqlserver installed and started.  Waiting 60 sec"
-    sleep 60
-    ps -aef | grep '/opt/mssql/bin/sqlservr'
+    echo "sqlserver installed and started."
 else
     echo "sqlserver already started" 
 fi
