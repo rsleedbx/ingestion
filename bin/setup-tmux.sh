@@ -8,7 +8,7 @@ local LOGNAME=$(logname 2>/dev/null)
 local LOGNAME=${LOGNAME:-root}
 local SESSION_NAME=${1:-$LOGNAME}
 
-exists=$( tmux ls | grep "^${SESSION_NAME}" )
+exists=$( tmux ls 2>/dev/null | grep "^${SESSION_NAME}" )
 if [ -z "${exists}" ]; then
     # windows
     tmux new-session -s ${SESSION_NAME} -d

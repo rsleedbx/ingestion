@@ -339,7 +339,7 @@ ping_sql_cli() {
   local -i count=0
   local -i rc=1
   while (( (rc != 0) && (count < max_wait) )); do
-    echo "select 1;" | sql_cli > /dev/null
+    echo "select 1;" | sql_root_cli > /dev/null
     rc=${PIPESTATUS[1]}
     if (( rc == 0 )); then 
       break
@@ -395,10 +395,8 @@ GO
 EOF
 
   # setup tmux
-  set -x
   send_command_tmux_window "$DBX_USERNAME" "sqluser" "/opt/mssql-tools18/bin/sqlcmd -I -d $SRCDB_DB -S $SRCDB_HOST,$SRCDB_PORT -U ${SRCDB_ARC_USER} -P ${SRCDB_ARC_PW} -C"
-  send_command_tmux_window "$DBX_USERNAME" "sqlroot" "/opt/mssql-tools18/bin/sqlcmd -I -d $SRCDB_DB -S $SRCDB_HOST,$SRCDB_PORT -U ${SRCDB_ROOT_USER} -P ${SRCDB_ROOT_PW} -C"
-  set +
+  send_command_tmux_window "$DBX_USERNAME" "sqlroot" "/opt/mssql-tools18/bin/sqlcmd -I -S $SRCDB_HOST,$SRCDB_PORT -U ${SRCDB_ROOT_USER} -P ${SRCDB_ROOT_PW} -C"
 }
 
 jdbc_cli() {
@@ -999,6 +997,7 @@ start_arcion() {
   send_command_tmux_window "$DBX_USERNAME" "trace" "cd ${ARCION_LOG_DIR}; while [ ! -f ${NINE_CHAR_ID}/trace.log ]; do sleep 1; echo sleep 1; done; tail -f ${NINE_CHAR_ID}/trace.log"
   send_command_tmux_window "$DBX_USERNAME" "error" "cd ${ARCION_LOG_DIR}; while [ ! -f ${NINE_CHAR_ID}/error_trace.log ]; do sleep 1; echo sleep 1; done; tail -f ${NINE_CHAR_ID}/error_trace.log"
   send_command_tmux_window "$DBX_USERNAME" "logdir" "cd ${ARCION_LOG_DIR}"
+  tmux select-window -t "$DBX_USERNAME":console
 }
 
 # change
