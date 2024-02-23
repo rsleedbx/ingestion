@@ -1,0 +1,4 @@
+
+type: NULLSTORAGE
+storage-location: ${ARCION_NULL_DIR} # schema and YAML files are written here
+

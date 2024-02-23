@@ -1,0 +1,16 @@
+# for 05.xx
+# snapshot - service-name points to cdb  
+
+# for 09.xx
+# snapshot - service-name points to pdb
+
+type: ORACLE
+host: 'ol7-19-scan'
+port: '1521'
+service-name: 'cdbrac'
+username: 'c##arcsrc'
+password: 'Passw0rd'
+max-connections: 5
+max-retries: 1
+retry-wait-duration-ms: 1000
+continuous-log-mining: false     

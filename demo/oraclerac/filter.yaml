@@ -1,0 +1,5 @@
+allow:
+#- catalog:  # must be NULL oracle 
+- schema: "C##ARCSRC" # must be upper case
+  types: [TABLE, VIEW, QUERY] # [TABLE,VIEW] 
+  allow:  # all tables if empty

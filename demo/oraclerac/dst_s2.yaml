@@ -1,0 +1,11 @@
+type: SINGLESTORE
+
+# will be set by envsubst from menu.sh 
+host: '127.0.0.1'
+port: 13306
+
+username: 'arcsrc'
+password: 'Passw0rd'
+
+max-connections: 10
+max-retries: 1

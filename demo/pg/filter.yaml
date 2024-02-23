@@ -1,0 +1,7 @@
+
+allow:
+- catalog: "arcsrc" 
+  schema : "public" 
+  types: [TABLE] # [TABLE,VIEW] 
+  allow:  # all tables if empty
+

@@ -1,0 +1,14 @@
+
+type: POSTGRESQL
+host: '127.0.0.1'
+port: 5432
+database: 'arcsrc'
+username: 'arcsrc'
+password: 'Passw0rd'
+max-connections: 10
+replication-slots:
+  arcsrc_w2j: 
+    - wal2json
+log-reader-type: STREAM # {STREAM|SQL deprecated}
+max-retries: 5
+

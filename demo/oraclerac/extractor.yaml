@@ -1,0 +1,20 @@
+snapshot:
+  threads: 1
+  _traceDBTasks: true
+  fetch-user-roles: false
+  _fetch-exact-row-count: false    
+  fetch-size-rows: 5_000 # default=5_000 
+  max-jobs-per-chunk: 80 # default=2xthreads
+  min-job-size-rows: 10_000 # default=1_000_000 
+
+realtime:
+  threads: 1
+  _traceDBTasks: true
+#  start-position:
+#    start-scn: 13774864  
+  heartbeat:
+    enable: false
+    catalog: # must be null for Oracle 
+    schema: C##ARCSRC
+    table-name : REPLICATE_IO_CDC_HEARTBEAT
+

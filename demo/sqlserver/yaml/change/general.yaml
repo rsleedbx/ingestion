@@ -1,0 +1,7 @@
+license-path: /opt/stage/arcion/replicant.lic
+data-dir: $ARCION_LOG_DIR
+permission-validation: 
+  enable: false
+#trace-log: #trace-log avail starting 23-05-31
+#  trace-level: INFO
+
