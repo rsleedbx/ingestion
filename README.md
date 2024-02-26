@@ -1,4 +1,15 @@
-## Overview
+# Overview
+
+For a demo, SQL Server source is support.
+
+## TL;DR
+- Start a Personal Compute Cluster
+- Open [sqlserver-arcion-dbx](sqlserver-arcion-dbx.ipynb) notebook
+- Attach the notebook to the Personal Compute Cluster
+- Follow the instructions in the notebook
+
+## Purpose
+
 This demo environment is designed to help answer the following questions:
 - How does it work
 - How fast is snapshot (bulk insert) performance
@@ -9,6 +20,7 @@ Demo is not for for:
 - Tuning based on environmental factors
 - Data value conversion
 - HA and resilience testing 
+
 
 ### Infrastructures
 
