@@ -12,28 +12,40 @@ Demo is not for for:
 
 ### Infrastructures
 
-The following the demo environment.
+The following is the demo environment.
 ```text
-  +--------------Databricks Personal Compute Cluster--------------------------+  
+  +------------------ Databricks Personal Compute Cluster --------------------+  
   |  +-----------+    +-----------+          +----------+     +------------+  |
   |  |  Workload |    | Source DB |          |  Arcion  |     | Target DB  |  | 
-  |  |           |    |           | <--------|          |     |            |  |
+  |  |           |    |           | <--------|   Demo   |     |            |  |
   |  |   YCSB    | -->| SQL Server|          | Notebook | --> | Databricks |  |
   |  |           |    |           | -------->|   CLI    |     |            |  |
   |  +-----------+    +-----------+          +----------+     +------------+  |
   +---------------------------------------------------------------------------+
 ```
 
-In the production, the following is expected separation.
+In a cloud deployment, the following is the expected separation.
 ```text
-  +----------Customer Cloud---------+   F   +---- Databricks Serverless ------+  
+  +----------Customer Cloud---------+   F   +---------- Databricks -----------+  
   |  +-----------+    +-----------+ |   I   | +----------+     +------------+ |
   |  |  Workload |    | Source DB | |   R   | |  Arcion  |     | Target DB  | | 
-  |  |           |    |           | | <-E-- | |          |     |            | |
+  |  |           |    |           | | <-E-- | |   Demo   |     |            | |
   |  |   YCSB    | -->| SQL Server| |   W   | | Notebook | --> | Databricks | |
   |  |           |    |           | | --A-> | |    UI    |     |            | |
   |  +-----------+    +-----------+ |   L   | +----------+     +------------+ |  
   +---------------------------------+   L   +---------------------------------+
+
+In an on-prem deployment, the following is the expected separation.
+```text
+  +-------------------Customer Cloud----------------+   F   +-- Databricks --+  
+  |  +-----------+    +-----------+    +----------+ |   I   | +------------+ |
+  |  |  Workload |    | Source DB |    |  Arcion  | |   R   | | Target DB  | | 
+  |  |           |    |           |    |   Demo   | |   E   | |            | |
+  |  |   YCSB    | -->| SQL Server| -->| Notebook | |   W   | | Databricks | |
+  |  |           |    |           |    |    UI    | | --A-> | |            | |
+  |  +-----------+    +-----------+    +----------+ |   L   | +------------+ |  
+  +-------------------------------------------------+   L   +----------------+
+
 ```
 
 ### Schema 

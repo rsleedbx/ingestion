@@ -1,4 +1,4 @@
-| DBR Version | Status | Node Type (CPUxRAM) |
+| DBR Version | Status | Node Type (CPU x RAM) |
 | ----------- | ------ | --------- |
 | 14.4 LTS | works | Standard_DS3_v2 (4x14)|
 | 13.3 LTS | works | Standard_DS3_v2 (4x14)|
