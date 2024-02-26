@@ -976,7 +976,7 @@ start_arcion() {
   # run arcion
   set -x 
   cd $ARCION_CFG_DIR; JAVA_HOME="$ARCION_JAVA_HOME" \
-  REPLICANT_MEMORY_PERCENTAGE=10.0 \
+  REPLICANT_MEMORY_PERCENTAGE=${REPLICANT_MEMORY_PERCENTAGE:-10.0} \
   JAVA_OPTS='"-Djava.security.egd=file:/dev/urandom" "-Doracle.jdbc.javaNetNio=false" "-XX:-UseCompressedOops"' \
   $ARCION_HOME/bin/$ARCION_BIN "${a_repltype}" \
                 ${ARCION_CFG_DIR}/src.yaml \
