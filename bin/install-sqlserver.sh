@@ -93,7 +93,7 @@ if [ ! -f /var/opt/mssql/mssql.demo ]; then
     customerfeedback = false
 EOF
     sudo MSSQL_SA_PASSWORD=Passw0rd /opt/mssql/bin/mssql-conf set-sa-password
-    start_sqlserver
+    start_sqlserver "$@"
 else
     echo "sqlserver already started" 
 fi
