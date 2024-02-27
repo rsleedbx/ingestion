@@ -3,6 +3,32 @@
 LOGNAME=$(logname 2>/dev/null)
 LOGNAME=${LOGNAME:-root}
 
+start_sqlserver() {
+    if [ -z "$(command -v systemctl)" ]; then
+            sudo /opt/mssql/bin/sqlservr "$@"
+    else
+        sudo systemctl start mssql-server
+    fi
+    if [ "$?" = 0 ]; then 
+        echo "sqlserver started."
+    else
+        echo "sqlserver start failed."
+    fi
+}
+
+stop_sqlserver() {
+    if [ -z "$(command -v systemctl)" ]; then
+            sudo /opt/mssql/bin/sqlservr "$@"
+    else
+        sudo systemctl stop mssql-server
+    fi
+    if [ "$?" = 0 ]; then 
+        echo "sqlserver started."
+    else
+        echo "sqlserver start failed."
+    fi    
+}
+
 # install 
 #  https://learn.microsoft.com/en-us/sql/linux/quickstart-install-connect-ubuntu?view=sql-server-ver16&tabs=ubuntu2004
 # setup 
@@ -67,8 +93,8 @@ if [ ! -f /var/opt/mssql/mssql.demo ]; then
     customerfeedback = false
 EOF
     sudo MSSQL_SA_PASSWORD=Passw0rd /opt/mssql/bin/mssql-conf set-sa-password
-    sudo systemctl start mssql-server
-    echo "sqlserver installed and started."
+    start_sqlserver
 else
     echo "sqlserver already started" 
 fi
+
