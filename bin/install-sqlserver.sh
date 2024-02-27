@@ -5,27 +5,28 @@ LOGNAME=${LOGNAME:-root}
 
 start_sqlserver() {
     if [ -z "$(command -v systemctl)" ]; then
-            sudo /opt/mssql/bin/sqlservr "$@"
+            # look at /var/opt/mssql/log
+            sudo -b -n -u mssql /opt/mssql/bin/sqlservr "$@" >/dev/null
     else
         sudo systemctl start mssql-server
     fi
     if [ "$?" = 0 ]; then 
         echo "sqlserver started."
     else
-        echo "sqlserver start failed."
+        echo "sqlserver start failed. $?"
     fi
 }
 
 stop_sqlserver() {
     if [ -z "$(command -v systemctl)" ]; then
-            sudo /opt/mssql/bin/sqlservr "$@"
+            sudo pkill sqlservr
     else
         sudo systemctl stop mssql-server
     fi
     if [ "$?" = 0 ]; then 
-        echo "sqlserver started."
+        echo "sqlserver killed."
     else
-        echo "sqlserver start failed."
+        echo "sqlserver kill failed. $?"
     fi    
 }
 
