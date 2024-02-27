@@ -4,12 +4,12 @@ LOGNAME=$(logname 2>/dev/null)
 LOGNAME=${LOGNAME:-root}
 
 start_sqlserver() {
-    if [ -z "$(command -v systemctl)" ]; then
-            # look at /var/opt/mssql/log
+    sudo systemctl start mssql-server
+    # on gcp, systemctl can't run and will exit with rc=1
+    if [ "$?" != "0" ]; then
             sudo -b -n -u mssql /opt/mssql/bin/sqlservr "$@" >/dev/null
-    else
-        sudo systemctl start mssql-server
     fi
+
     if [ "$?" = 0 ]; then 
         echo "sqlserver started."
     else
@@ -18,11 +18,12 @@ start_sqlserver() {
 }
 
 stop_sqlserver() {
-    if [ -z "$(command -v systemctl)" ]; then
-            sudo pkill sqlservr
-    else
-        sudo systemctl stop mssql-server
+    sudo systemctl start mssql-server
+    # on gcp, systemctl can't run and will exit with rc=1
+    if [ "$?" != "0" ]; then
+        sudo pkill sqlservr
     fi
+    
     if [ "$?" = 0 ]; then 
         echo "sqlserver killed."
     else
