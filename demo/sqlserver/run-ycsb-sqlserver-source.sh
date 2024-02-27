@@ -83,6 +83,7 @@ sf_to_name() {
 
 load_dense_data_cnt() {
   local TABLE_COUNT=${1:-${TABLE_COUNT:-1}}
+  local TABLE_COUNTSTART=${2:-1}
   local y_fieldcount=${y_fieldcount:-10}
   local y_fieldlength=${y_fieldlength:-100}
   local y_recordcount=${y_recordcount:-100K}
@@ -90,13 +91,14 @@ load_dense_data_cnt() {
   local y_fillend=${y_fillend:-${y_fieldcount}}
   local y_tabletype=dense
 
-  for i in $(seq 1 $TABLE_COUNT); do
+  for i in $(seq $TABLE_COUNTSTART $TABLE_COUNT); do
     load_dense_data $i
   done
 }
 
 load_sparse_data_cnt() {
   local TABLE_COUNT=${1:-${TABLE_COUNT:-1}}
+  local TABLE_COUNTSTART=${2:-1}
   local y_fieldcount=${y_fieldcount:-10}
   local y_fieldlength=${y_fieldlength:-100} 
   local y_recordcount=${y_recordcount:-1M}
@@ -104,7 +106,7 @@ load_sparse_data_cnt() {
   local y_fillend=${y_fillend:-0}
   local y_tabletype=sparse
 
-  for i in $(seq 1 $TABLE_COUNT); do
+  for i in $(seq $TABLE_COUNTSTART $TABLE_COUNT); do
     load_dense_data $i
   done
 }
@@ -143,11 +145,10 @@ convert_table_stat_to_var() {
 }
 
 load_dense_data() {
+  local TABLE_INST=${1:-${TABLE_INST:-1}}
 
   if [ -z "$(command -v bcp)" ]; then export PATH=/opt/mssql-tools18/bin:$PATH; fi
 
-
-    local TABLE_INST=${1:-${TABLE_INST:-1}}
     local TABLE_INST_NAME=$(sf_to_name $TABLE_INST)
     local y_insertstart
     local table_field_cnt
