@@ -931,6 +931,18 @@ start_arcion() {
   local a_repltype="${a_repltype:-"real-time"}"   # snapshot real-time full
   local a_yamldir="${a_yamldir:-"./yaml/change"}"
 
+  # check license 
+  if [ ! -f "/opt/stage/arcion/replicant.lic" ]; then
+    echo "/opt/stage/arcion/replicant.lic not found."
+    return 1
+  fi
+
+  # check access token
+  if [[ ( -z "${DBX_ACCESS_TOKEN}" ) && ( "${DSTDB_TYPE,,}" != "null" ) ]]; then
+    echo "personal access token not entered."
+    return 1
+  fi
+
   # check dst config 
   if [ ! -d "${a_yamldir}" ]; then echo "$a_yamldir should be a dir." >&2; return 1; fi
   if [ ! -f ${a_yamldir}/dst_${DSTDB_TYPE}.yaml ]; then echo " ${a_yamldir}/dst_${DSTDB_TYPE}.yaml" >&2; return 1; fi
