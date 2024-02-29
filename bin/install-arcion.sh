@@ -4,17 +4,22 @@ LOGNAME=$(logname 2>/dev/null)
 LOGNAME=${LOGNAME:-root}
 ARCION_HOME=${ARCION_HOME:-/opt/stage/arcion}
 
+ARCION_DOWNLOAD_URL=${ARCION_DOWNLOAD_URL:-https://arcion-releases.s3.us-west-1.amazonaws.com/general/replicant/replicant-cli-24.01.25.7.zip}
+ARCION_VER=$(echo $ARCION_DOWNLOAD_URL | sed 's/.*cli-\(.*\)\.zip$/\1/' )
+ARCION_BIN="${ARCION_HOME}/${ARCION_VER}"
+
 if [ ! -d $ARCION_HOME ]; then
     sudo mkdir -p $ARCION_HOME && chown "${LOGNAME}" $ARCION_HOME
 fi
 
-if [ ! -d $ARCION_HOME/replicant-cli/bin ]; then
-  cd $ARCION_HOME && curl -O --location https://arcion-releases.s3.us-west-1.amazonaws.com/general/replicant/replicant-cli-24.01.25.1.zip
-  unzip -q replicant-cli-*.zip
-  rm replicant-cli-*.zip
-  echo "arcion  $ARCION_HOME/replicant-cli/bin/replicant downloaded"
+if [ ! -d $ARCION_BIN ]; then
+  mkdir -p $ARCION_BIN
+  cd $ARCION_BIN
+  curl -O --location $ARCION_DOWNLOAD_URL 
+  unzip -q replicant-cli-*.zip && rm replicant-cli-*.zip
+  echo "arcion  $ARCION_BIN downloaded"
 else
-  echo "arcion  $ARCION_HOME/replicant-cli/bin/replicant found"
+  echo "arcion  $ARCION_BIN found"
 fi
 
 # copy the jar and jdbc
