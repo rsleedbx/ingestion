@@ -12,6 +12,7 @@ LOG_DIR=/var/tmp/sqlserver/logs
 CONFIG_DIR=/var/tmp/sqlserver/config
 if [ ! -d ${LOG_DIR} ]; then mkdir -p ${LOG_DIR}; fi
 if [ ! -d ${CONFIG_DIR} ]; then mkdir -p ${CONFIG_DIR}; fi
+export ARCION_BASEDIR=/opt/stage/arcion
 
 send_command_tmux_window() {
   local session_name=${1}
@@ -29,29 +30,20 @@ nine_char_id() {
 
 create_user() {
   sql_root_cli <<EOF
-  CREATE LOGIN ${SRCDB_ARC_USER} WITH PASSWORD = '${SRCDB_ARC_PW}'
-  go
-  create database ${SRCDB_DB}
-  go
-  use ${SRCDB_DB}
-  go
-  CREATE USER ${SRCDB_ARC_USER} FOR LOGIN ${SRCDB_ARC_USER} WITH DEFAULT_SCHEMA=dbo
-  go
-  ALTER ROLE db_owner ADD MEMBER ${SRCDB_ARC_USER}
-  go
-  ALTER ROLE db_ddladmin ADD MEMBER ${SRCDB_ARC_USER}
-  go
-  alter user ${SRCDB_ARC_USER} with default_schema=dbo
-  go
-  ALTER LOGIN ${SRCDB_ARC_USER} WITH DEFAULT_DATABASE=[${SRCDB_DB}]
-  go
-  -- required for change tracking
-  -- ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = ON  
-  -- (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON) -- required for CDC
-  -- go
-  -- required for CDC
-  -- EXEC sys.sp_cdc_enable_db 
-  -- go
+  IF not exists (SELECT * FROM master.sys.server_principals WHERE NAME = '${SRCDB_ARC_USER}')
+    begin
+      select 'creating user';
+      CREATE LOGIN ${SRCDB_ARC_USER} WITH PASSWORD = '${SRCDB_ARC_PW}';
+      create database ${SRCDB_DB};
+      use ${SRCDB_DB};
+      CREATE USER ${SRCDB_ARC_USER} FOR LOGIN ${SRCDB_ARC_USER} WITH DEFAULT_SCHEMA=dbo;
+      ALTER ROLE db_owner ADD MEMBER ${SRCDB_ARC_USER};
+      ALTER ROLE db_ddladmin ADD MEMBER ${SRCDB_ARC_USER};
+      alter user ${SRCDB_ARC_USER} with default_schema=dbo;
+      ALTER LOGIN ${SRCDB_ARC_USER} WITH DEFAULT_DATABASE=[${SRCDB_DB}];
+    end
+  else
+    select 'user already exists.  skipping';
 EOF
 
 }
@@ -59,7 +51,7 @@ EOF
 #
 kill_recurse() {
     if [ -z "${1}" ]; then return 0; fi
-
+    echo kill $1
     cpids=$(pgrep -P $1 | xargs)
     for cpid in $cpids;
     do
@@ -899,35 +891,51 @@ set_arcion_java_home() {
   echo $ARCION_JAVA_HOME
 }
 
+arcion_version_from_url() {
+  # remove leading names and trailing .zip
+  export ARCION_DOWNLOAD_URL=${ARCION_DOWNLOAD_URL:-https://arcion-releases.s3.us-west-1.amazonaws.com/general/replicant/replicant-cli-24.01.25.7.zip}
+  export ARCION_DIRNAME=$( basename $ARCION_DOWNLOAD_URL .zip  )
+  export ARCION_HOME="${ARCION_BASEDIR}/${ARCION_DIRNAME}"
+  export ARCION_BIN="$( find ${ARCION_HOME} -maxdepth 4 -name replicate -o -name replicant )" 
+}
+
 # set JAVA_HOME ARCION_HOME ARCION_BIN
 replicant_or_replicate() {
-  export ARCION_HOME=${ARCION_HOME:-$( find /opt/stage/arcion -maxdepth 3 -name replicate -o -name replicant | sed 's|/bin/.*$||' | head -n 1)}
-  
-  if [ -x "$ARCION_HOME/bin/replicant" ]; then echo replicant; export ARCION_BIN=replicant; return 0; fi 
-  if [ -x "$ARCION_HOME/bin/replicate" ]; then echo replicate; export ARCION_BIN=replicate; return 0; fi 
-  
-  echo "$ARCION_HOME/bin does not have replicant or replicate" >&2
-  return 1
+  if [ -z "${ARCION_DOWNLOAD_URL}" ]; then
+    # pick the latest from downloaded
+    export ARCION_BIN=${ARCION_HOME:-$( find ${ARCION_BASEDIR} -maxdepth 4 -name replicate -o -name replicant | sort -r --version-sort | head -n 1)}
+  else
+    # use the specified
+    arcion_version_from_url
+  fi
+
+  if [[ ( -z "$ARCION_BIN" ) || ( ! -x "$ARCION_BIN" ) ]]; then   
+    echo "$ARCION_BASEDIR does not have replicant or replicate" >&2
+    return 1
+  fi
 }
 
 run_arcion() {
   JAVA_HOME="$ARCION_JAVA_HOME" \
-  $ARCION_HOME/bin/$ARCION_BIN "$@"
+  $ARCION_BIN "$@"
 }
 
 # set ARCION_VERSION
 arcion_version() {
-  replicant_or_replicate || return 1
+  replicant_or_replicate || echo "arcion not found." && return 1
   export ARCION_VERSION="$(run_arcion version 2>/dev/null | grep Version | awk -F' ' '{print $NF}')"
   export ARCION_YYMM=$(echo $ARCION_VERSION | awk -F'.' '{print $1 "." $2}')
-  echo "$ARCION_VERSION $ARCION_YYMM"
+  echo "$ARCION_BIN $ARCION_VERSION $ARCION_YYMM"
 }
 
 # --clean-job
 # a_repltype:-"real-time"
 # a_yamldir:-"./yaml/change"
 start_arcion() {
-  replicant_or_replicate
+  if [[ ( -z "$ARCION_BIN" ) || ( ! -x "$ARCION_BIN" ) ]]; then
+    replicant_or_replicate
+  fi
+
   local a_repltype="${a_repltype:-"real-time"}"   # snapshot real-time full
   local a_yamldir="${a_yamldir:-"./yaml/change"}"
 
@@ -991,7 +999,7 @@ start_arcion() {
   cd $ARCION_CFG_DIR; JAVA_HOME="$ARCION_JAVA_HOME" \
   REPLICANT_MEMORY_PERCENTAGE=${REPLICANT_MEMORY_PERCENTAGE:-10.0} \
   JAVA_OPTS='"-Djava.security.egd=file:/dev/urandom" "-Doracle.jdbc.javaNetNio=false" "-XX:-UseCompressedOops"' \
-  $ARCION_HOME/bin/$ARCION_BIN "${a_repltype}" \
+  $ARCION_BIN "${a_repltype}" \
                 ${ARCION_CFG_DIR}/src.yaml \
                 ${ARCION_CFG_DIR}/dst.yaml \
     --applier   ${ARCION_CFG_DIR}/applier.yaml \
@@ -1034,15 +1042,17 @@ start_cdc_arcion() {
 
 
 kill_ycsb() {
-  for pid in $(ps -eo pid,command | grep -e '/bin/sh .*/ycsb.sh' | awk '{print $1}'); do 
-    kill_recurse $pid
+  for pid in $(ps -eo pid,command | grep -e '/bin/sh .*/ycsb.sh' | grep -v grep | awk '{print $1}'); do 
+    kill_recurse "$pid"
   done 
 }
 
 kill_arcion() { 
-  for pid in $(ps -eo pid,command | grep -e 'sh .*replicant' -e 'sh .*replicate' | awk '{print $1}'); do
-    kill_recurse $pid
+  echo "enter"
+  for pid in $(ps -eo pid,command | grep -e 'sh .*replicant' -e 'sh .*replicate' | grep -v grep | awk '{print $1}'); do
+    kill_recurse "$pid"
   done 
+  echo "exit"
 }
 
 

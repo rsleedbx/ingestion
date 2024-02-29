@@ -15,7 +15,7 @@ wait_log() {
 # set JAVA_HOME ARCION_HOME ARCION_BIN
 replicant_or_replicate() {
   export JAVA_HOME=${JAVA_HOME:-$( find /usr/lib/jvm/java-8-openjdk-*/jre -maxdepth 0)}
-  export ARCION_HOME=${ARCION_HOME:-$( find /opt/stage/arcion -maxdepth 3 -name replicate -o -name replicant | sed 's|/bin/.*$||' | head -n 1)}
+  export ARCION_HOME=${ARCION_HOME:-$( find /opt/stage/arcion -maxdepth 4 -name replicate -o -name replicant | sed 's|/bin/.*$||' | head -n 1)}
   
   if [ -x "$ARCION_HOME/bin/replicant" ]; then echo replicant; export ARCION_BIN=replicant; return 0; fi 
   if [ -x "$ARCION_HOME/bin/replicate" ]; then echo replicate; export ARCION_BIN=replicate; return 0; fi 

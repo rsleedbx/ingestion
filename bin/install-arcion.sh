@@ -2,28 +2,30 @@
 
 LOGNAME=$(logname 2>/dev/null)
 LOGNAME=${LOGNAME:-root}
-ARCION_HOME=${ARCION_HOME:-/opt/stage/arcion}
+ARCION_BASEDIR=${ARCION_BASEDIR:-/opt/stage/arcion}
 
-ARCION_DOWNLOAD_URL=${ARCION_DOWNLOAD_URL:-https://arcion-releases.s3.us-west-1.amazonaws.com/general/replicant/replicant-cli-24.01.25.7.zip}
-ARCION_VER=$(echo $ARCION_DOWNLOAD_URL | sed 's/.*cli-\(.*\)\.zip$/\1/' )
-ARCION_BIN="${ARCION_HOME}/${ARCION_VER}"
-
-if [ ! -d $ARCION_HOME ]; then
-    sudo mkdir -p $ARCION_HOME && chown "${LOGNAME}" $ARCION_HOME
+if [ ! -d "$ARCION_BASEDIR" ]; then
+    sudo mkdir -p $ARCION_BASEDIR && sudo chown "${LOGNAME}" $ARCION_HOME
 fi
 
-if [ ! -d $ARCION_BIN ]; then
-  mkdir -p $ARCION_BIN
-  cd $ARCION_BIN
+ARCION_DOWNLOAD_URL=${ARCION_DOWNLOAD_URL:-https://arcion-releases.s3.us-west-1.amazonaws.com/general/replicant/replicant-cli-24.01.25.7.zip}
+ARCION_DIRNAME=$( basename $ARCION_DOWNLOAD_URL .zip  )
+ARCION_HOME="${ARCION_BASEDIR}/${ARCION_DIRNAME}"
+
+# check if downloaded and unzipped
+ARCION_BIN="$( find ${ARCION_HOME} -maxdepth 4 -name replicate -o -name replicant 2>/dev/null)" 
+if [[ ( -z "$ARCION_BIN" ) || ( ! -f "$ARCION_BIN" ) ]]; then
+  mkdir -p $ARCION_HOME
+  cd $ARCION_HOME
   curl -O --location $ARCION_DOWNLOAD_URL 
-  unzip -q replicant-cli-*.zip && rm replicant-cli-*.zip
+  unzip -q *-cli-*.zip && rm *-cli-*.zip
   echo "arcion  $ARCION_BIN downloaded"
 else
   echo "arcion  $ARCION_BIN found"
 fi
 
 # copy the jar and jdbc
-for inst in $(find $ARCION_HOME -name "replicant" -o -name "replicate"); do
+for inst in $(find $ARCION_BASEDIR -name "replicant" -o -name "replicate"); do
   dir="$(dirname $(dirname $inst))/lib"
   echo "checking jar(s) in $dir for updates"
 
@@ -35,17 +37,17 @@ for inst in $(find $ARCION_HOME -name "replicant" -o -name "replicate"); do
 done 
 
 # setup the license
-if [ ! -f $ARCION_HOME/replicant.lic ]; then
+if [ ! -f $ARCION_BASEDIR/replicant.lic ]; then
   if [ -n "$ARCION_LICENSE" ]; then
-    echo "setting $ARCION_HOME/replicant.lic from \$ARCION_LICENSE"
+    echo "setting $ARCION_BASEDIR/replicant.lic from \$ARCION_LICENSE"
     # try if gzip
-    echo "$ARCION_LICENSE" | base64 -d | gzip -d > ${ARCION_HOME}/replicant.lic 2>/dev/null
+    echo "$ARCION_LICENSE" | base64 -d | gzip -d > ${ARCION_BASEDIR}/replicant.lic 2>/dev/null
     # try non gzip
     if [ "$?" != 0 ]; then
-        echo "$ARCION_LICENSE" | base64 -d > ${ARCION_HOME}/replicant.lic 2>/dev/null
+        echo "$ARCION_LICENSE" | base64 -d > ${ARCION_BASEDIR}/replicant.lic 2>/dev/null
     fi
-    if [ -s ${ARCION_HOME}/replicant.lic ]; then 
-      cat ${ARCION_HOME}/replicant.lic
+    if [ -s ${ARCION_BASEDIR}/replicant.lic ]; then 
+      cat ${ARCION_BASEDIR}/replicant.lic
     else
       echo "Error: ARCION_LICENSE not valid"
       exit 1
