@@ -83,9 +83,14 @@ load_dense_data_cnt() {
   local y_fillend=${y_fillend:-${y_fieldcount}}
   local y_tabletype=dense
 
+  echo -n "starting dense load. $LOG_DIR/ycsbdense.load.log"
+  rm $LOG_DIR/ycsbdense.load.log 2>/dev/null
+  touch $LOG_DIR/ycsbdense.load.log
   for i in $(seq $TABLE_COUNTSTART $TABLE_COUNT); do
-    load_dense_data $i
+    echo -n " $i"
+    load_dense_data $i >> $LOG_DIR/ycsbdense.load.log 2>&1
   done
+  echo ""
 }
 
 load_sparse_data_cnt() {
@@ -98,9 +103,14 @@ load_sparse_data_cnt() {
   local y_fillend=${y_fillend:-0}
   local y_tabletype=sparse
 
+  echo -n "starting sparse load. $LOG_DIR/ycssparse.load.log"
+  rm $LOG_DIR/ycsbsparse.load.log 2>/dev/null
+  touch $LOG_DIR/ycsbsparse.load.log
   for i in $(seq $TABLE_COUNTSTART $TABLE_COUNT); do
-    load_dense_data $i
+    echo -n " $i"
+    load_dense_data $i >> $LOG_DIR/ycsbsparse.load.log 2>&1
   done
+  echo ""
 }
 
 
@@ -810,7 +820,7 @@ start_ycsb() {
   echo "running ycsb on /tmp/list_table_counts.csv"
   pushd /opt/stage/ycsb/ycsb-jdbc-binding-0.18.0-SNAPSHOT/ >/dev/null
   for tablestat in $(cat /tmp/list_table_counts.csv); do
-    echo "$tablestat"
+    [ -n "$YCSB_DEBUG" ] && echo -n "$tablestat"
 
     # read from the stat
     local table_name
@@ -828,7 +838,7 @@ start_ycsb() {
     local _y_target=$(var_name "target" "$tabletype")
     local _y_fieldlength=$(var_name "fieldlength" "$tabletype")
 
-    echo "table_name=$table_name tabletype=$tabletype record_count=$record_count field_count=$field_count _y_threads=${!_y_threads} _y_target=${!_y_target} _y_fieldlength=${!_y_fieldlength}"
+    [ -n "$YCSB_DEBUG" ] && echo "table_name=$table_name tabletype=$tabletype record_count=$record_count field_count=$field_count _y_threads=${!_y_threads} _y_target=${!_y_target} _y_fieldlength=${!_y_fieldlength}"
 
     # run
     # JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-* -maxdepth 0 ) \
@@ -855,14 +865,11 @@ start_ycsb() {
     -threads ${!_y_threads:-1} \
     -target ${!_y_target:-1} "${@}" >$LOG_DIR/ycsb.$table_name.log 2>&1 &
     
-    YCSB_PID=$!
-    echo $YCSB_PID > $LOG_DIR/ycsb.$table_name.pid
-    echo "ycsb $table_name pid $YCSB_PID"  
-    echo "ycsb $table_name log is at $LOG_DIR/ycsb.$table_name.log"
-    echo "ycsb $table_name can be killed with . ./demo/sqlserver/run-ycsb-sqlserver-source.sh; kill_ycsb)"
     done
 
     popd >/dev/null
+
+    echo "ycsb can be killed with . ./demo/sqlserver/run-ycsb-sqlserver-source.sh; kill_ycsb)"
 
     # setup tmux
     send_command_tmux_window "$DBX_USERNAME" "ycsb" "cd ${LOG_DIR}; tail -f ycsb.*.log"
