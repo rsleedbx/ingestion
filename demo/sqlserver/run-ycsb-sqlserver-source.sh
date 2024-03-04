@@ -457,7 +457,7 @@ port_db() {
     export SRCDB_ARC_PW=${SRCDB_ARC_PW:-Passw0rd}
     export SRCDB_DB=${SRCDB_DB:-${SRCDB_ARC_USER}}
     export SRCDB_SCHEMA=${SRCDB_SCHEMA:-dbo}
-    export SRCDB_USER_CHANGE=${SRCDB_USER_CHANGE:-arcsrc}
+    export SRCDB_USER_CHANGE=${SRCDB_USER_CHANGE:-${SRCDB_DB:-arcsrc}}
 
     export SRCDB_ROOT_USER=sa
     export SRCDB_ROOT_PW=Passw0rd
