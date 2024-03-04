@@ -71,3 +71,14 @@ if [ ! -f /opt/stage/libs/log4j-1.2.17.jar ]; then
 else
     echo "log4j /opt/stage/libs/log4j-1.2.17.jar found"
 fi
+
+# download sqlserver from maven
+# https://learn.microsoft.com/en-us/sql/connect/jdbc/download-microsoft-jdbc-driver-for-sql-server?view=sql-server-ver16#using-the-jdbc-driver-with-maven-central
+if [ ! -f /opt/stage/libs/mssql-jdbc-12.6.1.jre8.jar ]; then
+    pushd /opt/stage/libs >/dev/null
+    curl -O --location https://repo1.maven.org/maven2/com/microsoft/sqlserver/mssql-jdbc/12.6.1.jre8/mssql-jdbc-12.6.1.jre8.jar
+    popd >/dev/null
+    echo "sqlserver /opt/stage/libs/mssql-jdbc-12.6.1.jre8.jar downloaded"
+else
+    echo "sqlserver /opt/stage/libs/mssql-jdbc-12.6.1.jre8.jar found"
+fi

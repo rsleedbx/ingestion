@@ -29,6 +29,7 @@ for inst in $(find $ARCION_BASEDIR -name "replicant" -o -name "replicate"); do
   dir="$(dirname $(dirname $inst))/lib"
   echo "checking jar(s) in $dir for updates"
 
+  # SQL Server is included
   for jarfile in $(find /opt/stage/libs/ -name "DatabricksJDBC42.jar" -o -name "SparkJDBC42.jar"  -o -name "log4j-*.jar" -o -name "ojdbc8.jar"); do
     # -u update if source is newer
     # -v show files being updated
