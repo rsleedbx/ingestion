@@ -12,6 +12,7 @@ LOG_DIR=/var/tmp/sqlserver/logs
 CONFIG_DIR=/var/tmp/sqlserver/config
 if [ ! -d ${LOG_DIR} ]; then mkdir -p ${LOG_DIR}; fi
 if [ ! -d ${CONFIG_DIR} ]; then mkdir -p ${CONFIG_DIR}; fi
+export ARCION_BASEDIR=/opt/stage/arcion
 
 send_command_tmux_window() {
   local session_name=${1}
@@ -29,29 +30,20 @@ nine_char_id() {
 
 create_user() {
   sql_root_cli <<EOF
-  CREATE LOGIN ${SRCDB_ARC_USER} WITH PASSWORD = '${SRCDB_ARC_PW}'
-  go
-  create database ${SRCDB_DB}
-  go
-  use ${SRCDB_DB}
-  go
-  CREATE USER ${SRCDB_ARC_USER} FOR LOGIN ${SRCDB_ARC_USER} WITH DEFAULT_SCHEMA=dbo
-  go
-  ALTER ROLE db_owner ADD MEMBER ${SRCDB_ARC_USER}
-  go
-  ALTER ROLE db_ddladmin ADD MEMBER ${SRCDB_ARC_USER}
-  go
-  alter user ${SRCDB_ARC_USER} with default_schema=dbo
-  go
-  ALTER LOGIN ${SRCDB_ARC_USER} WITH DEFAULT_DATABASE=[${SRCDB_DB}]
-  go
-  -- required for change tracking
-  -- ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = ON  
-  -- (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON) -- required for CDC
-  -- go
-  -- required for CDC
-  -- EXEC sys.sp_cdc_enable_db 
-  -- go
+  IF not exists (SELECT * FROM master.sys.server_principals WHERE NAME = '${SRCDB_ARC_USER}')
+    begin
+      select 'creating user';
+      CREATE LOGIN ${SRCDB_ARC_USER} WITH PASSWORD = '${SRCDB_ARC_PW}';
+      create database ${SRCDB_DB};
+      use ${SRCDB_DB};
+      CREATE USER ${SRCDB_ARC_USER} FOR LOGIN ${SRCDB_ARC_USER} WITH DEFAULT_SCHEMA=dbo;
+      ALTER ROLE db_owner ADD MEMBER ${SRCDB_ARC_USER};
+      ALTER ROLE db_ddladmin ADD MEMBER ${SRCDB_ARC_USER};
+      alter user ${SRCDB_ARC_USER} with default_schema=dbo;
+      ALTER LOGIN ${SRCDB_ARC_USER} WITH DEFAULT_DATABASE=[${SRCDB_DB}];
+    end
+  else
+    select 'user already exists.  skipping';
 EOF
 
 }
@@ -59,7 +51,7 @@ EOF
 #
 kill_recurse() {
     if [ -z "${1}" ]; then return 0; fi
-
+    echo kill $1
     cpids=$(pgrep -P $1 | xargs)
     for cpid in $cpids;
     do
@@ -91,9 +83,14 @@ load_dense_data_cnt() {
   local y_fillend=${y_fillend:-${y_fieldcount}}
   local y_tabletype=dense
 
+  echo -n "starting dense load. $LOG_DIR/ycsbdense.load.log"
+  rm $LOG_DIR/ycsbdense.load.log 2>/dev/null
+  touch $LOG_DIR/ycsbdense.load.log
   for i in $(seq $TABLE_COUNTSTART $TABLE_COUNT); do
-    load_dense_data $i
+    echo -n " $i"
+    load_dense_data $i >> $LOG_DIR/ycsbdense.load.log 2>&1
   done
+  echo ""
 }
 
 load_sparse_data_cnt() {
@@ -106,9 +103,14 @@ load_sparse_data_cnt() {
   local y_fillend=${y_fillend:-0}
   local y_tabletype=sparse
 
+  echo -n "starting sparse load. $LOG_DIR/ycssparse.load.log"
+  rm $LOG_DIR/ycsbsparse.load.log 2>/dev/null
+  touch $LOG_DIR/ycsbsparse.load.log
   for i in $(seq $TABLE_COUNTSTART $TABLE_COUNT); do
-    load_dense_data $i
+    echo -n " $i"
+    load_dense_data $i >> $LOG_DIR/ycsbsparse.load.log 2>&1
   done
+  echo ""
 }
 
 
@@ -818,7 +820,7 @@ start_ycsb() {
   echo "running ycsb on /tmp/list_table_counts.csv"
   pushd /opt/stage/ycsb/ycsb-jdbc-binding-0.18.0-SNAPSHOT/ >/dev/null
   for tablestat in $(cat /tmp/list_table_counts.csv); do
-    echo "$tablestat"
+    [ -n "$YCSB_DEBUG" ] && echo -n "$tablestat"
 
     # read from the stat
     local table_name
@@ -836,7 +838,7 @@ start_ycsb() {
     local _y_target=$(var_name "target" "$tabletype")
     local _y_fieldlength=$(var_name "fieldlength" "$tabletype")
 
-    echo "table_name=$table_name tabletype=$tabletype record_count=$record_count field_count=$field_count _y_threads=${!_y_threads} _y_target=${!_y_target} _y_fieldlength=${!_y_fieldlength}"
+    [ -n "$YCSB_DEBUG" ] && echo "table_name=$table_name tabletype=$tabletype record_count=$record_count field_count=$field_count _y_threads=${!_y_threads} _y_target=${!_y_target} _y_fieldlength=${!_y_fieldlength}"
 
     # run
     # JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-* -maxdepth 0 ) \
@@ -863,14 +865,11 @@ start_ycsb() {
     -threads ${!_y_threads:-1} \
     -target ${!_y_target:-1} "${@}" >$LOG_DIR/ycsb.$table_name.log 2>&1 &
     
-    YCSB_PID=$!
-    echo $YCSB_PID > $LOG_DIR/ycsb.$table_name.pid
-    echo "ycsb $table_name pid $YCSB_PID"  
-    echo "ycsb $table_name log is at $LOG_DIR/ycsb.$table_name.log"
-    echo "ycsb $table_name can be killed with . ./demo/sqlserver/run-ycsb-sqlserver-source.sh; kill_ycsb)"
     done
 
     popd >/dev/null
+
+    echo "ycsb can be killed with . ./demo/sqlserver/run-ycsb-sqlserver-source.sh; kill_ycsb)"
 
     # setup tmux
     send_command_tmux_window "$DBX_USERNAME" "ycsb" "cd ${LOG_DIR}; tail -f ycsb.*.log"
@@ -899,37 +898,65 @@ set_arcion_java_home() {
   echo $ARCION_JAVA_HOME
 }
 
+arcion_version_from_url() {
+  # remove leading names and trailing .zip
+  export ARCION_DOWNLOAD_URL=${ARCION_DOWNLOAD_URL:-https://arcion-releases.s3.us-west-1.amazonaws.com/general/replicant/replicant-cli-24.01.25.7.zip}
+  export ARCION_DIRNAME=$( basename $ARCION_DOWNLOAD_URL .zip  )
+  export ARCION_HOME="${ARCION_BASEDIR}/${ARCION_DIRNAME}"
+  export ARCION_BIN="$( find ${ARCION_HOME} -maxdepth 4 -name replicate -o -name replicant )" 
+}
+
 # set JAVA_HOME ARCION_HOME ARCION_BIN
 replicant_or_replicate() {
-  export ARCION_HOME=${ARCION_HOME:-$( find /opt/stage/arcion -maxdepth 3 -name replicate -o -name replicant | sed 's|/bin/.*$||' | head -n 1)}
-  
-  if [ -x "$ARCION_HOME/bin/replicant" ]; then echo replicant; export ARCION_BIN=replicant; return 0; fi 
-  if [ -x "$ARCION_HOME/bin/replicate" ]; then echo replicate; export ARCION_BIN=replicate; return 0; fi 
-  
-  echo "$ARCION_HOME/bin does not have replicant or replicate" >&2
-  return 1
+  if [ -z "${ARCION_DOWNLOAD_URL}" ]; then
+    # pick the latest from downloaded
+    export ARCION_BIN=${ARCION_HOME:-$( find ${ARCION_BASEDIR} -maxdepth 4 -name replicate -o -name replicant | sort -r --version-sort | head -n 1)}
+  else
+    # use the specified
+    arcion_version_from_url
+  fi
+
+  if [[ ( -z "$ARCION_BIN" ) || ( ! -x "$ARCION_BIN" ) ]]; then   
+    echo "$ARCION_BASEDIR does not have replicant or replicate" >&2
+    return 1
+  fi
 }
 
 run_arcion() {
   JAVA_HOME="$ARCION_JAVA_HOME" \
-  $ARCION_HOME/bin/$ARCION_BIN "$@"
+  $ARCION_BIN "$@"
 }
 
 # set ARCION_VERSION
 arcion_version() {
-  replicant_or_replicate || return 1
+  replicant_or_replicate || echo "arcion not found." && return 1
   export ARCION_VERSION="$(run_arcion version 2>/dev/null | grep Version | awk -F' ' '{print $NF}')"
   export ARCION_YYMM=$(echo $ARCION_VERSION | awk -F'.' '{print $1 "." $2}')
-  echo "$ARCION_VERSION $ARCION_YYMM"
+  echo "$ARCION_BIN $ARCION_VERSION $ARCION_YYMM"
 }
 
 # --clean-job
 # a_repltype:-"real-time"
 # a_yamldir:-"./yaml/change"
 start_arcion() {
-  replicant_or_replicate
+  if [[ ( -z "$ARCION_BIN" ) || ( ! -x "$ARCION_BIN" ) ]]; then
+    replicant_or_replicate
+  fi
+
   local a_repltype="${a_repltype:-"real-time"}"   # snapshot real-time full
   local a_yamldir="${a_yamldir:-"./yaml/change"}"
+
+  # check license 
+  if [ ! -f "/opt/stage/arcion/replicant.lic" ]; then
+    echo "/opt/stage/arcion/replicant.lic not found."
+    return 1
+  fi
+
+  # check access token
+  if [[ ( -z "${DBX_ACCESS_TOKEN}" ) && ( "${DSTDB_TYPE,,}" != "null" ) ]]; then
+    echo "personal access token not entered."
+    return 1
+  fi
 
   # check dst config 
   if [ ! -d "${a_yamldir}" ]; then echo "$a_yamldir should be a dir." >&2; return 1; fi
@@ -979,7 +1006,7 @@ start_arcion() {
   cd $ARCION_CFG_DIR; JAVA_HOME="$ARCION_JAVA_HOME" \
   REPLICANT_MEMORY_PERCENTAGE=${REPLICANT_MEMORY_PERCENTAGE:-10.0} \
   JAVA_OPTS='"-Djava.security.egd=file:/dev/urandom" "-Doracle.jdbc.javaNetNio=false" "-XX:-UseCompressedOops"' \
-  $ARCION_HOME/bin/$ARCION_BIN "${a_repltype}" \
+  $ARCION_BIN "${a_repltype}" \
                 ${ARCION_CFG_DIR}/src.yaml \
                 ${ARCION_CFG_DIR}/dst.yaml \
     --applier   ${ARCION_CFG_DIR}/applier.yaml \
@@ -1022,15 +1049,17 @@ start_cdc_arcion() {
 
 
 kill_ycsb() {
-  for pid in $(ps -eo pid,command | grep -e '/bin/sh .*/ycsb.sh' | awk '{print $1}'); do 
-    kill_recurse $pid
+  for pid in $(ps -eo pid,command | grep -e '/bin/sh .*/ycsb.sh' | grep -v grep | awk '{print $1}'); do 
+    kill_recurse "$pid"
   done 
 }
 
 kill_arcion() { 
-  for pid in $(ps -eo pid,command | grep -e 'sh .*replicant' -e 'sh .*replicate' | awk '{print $1}'); do
-    kill_recurse $pid
+  echo "enter"
+  for pid in $(ps -eo pid,command | grep -e 'sh .*replicant' -e 'sh .*replicate' | grep -v grep | awk '{print $1}'); do
+    kill_recurse "$pid"
   done 
+  echo "exit"
 }
 
 
