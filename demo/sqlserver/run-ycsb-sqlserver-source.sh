@@ -247,7 +247,7 @@ load_dense_data() {
         # batch of 1M
         # -u trust certifcate
 	set -x
-	bcp "YCSB${y_tabletype^^}${TABLE_INST_NAME}" in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d arcsrc -f "${LOG_DIR}/03_${y_tabletype}table.fmt" -b "${progress_interval_rows}" | tee ${LOG_DIR}/03_${y_tabletype}table.log
+	bcp "YCSB${y_tabletype^^}${TABLE_INST_NAME}" in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d "${SRCDB_ARC_USER}" -f "${LOG_DIR}/03_${y_tabletype}table.fmt" -b "${progress_interval_rows}" | tee ${LOG_DIR}/03_${y_tabletype}table.log
         set +x
         echo "bcp log at ${LOG_DIR}/03_${y_tabletype}table.log"
 
@@ -1134,7 +1134,7 @@ cat <<EOF | jdbc_root_cli
 
 -- show catalog
 select name, suser_sname(owner_sid) "owner_name", is_cdc_enabled, is_change_feed_enabled, is_published, is_encrypted from sys.databases
-where name in ('arcsrc')
+where name in ('${SRCDB_DB}')
 go
 
 
