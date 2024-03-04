@@ -24,24 +24,43 @@ nine_char_id() {
     printf "%09x\n" "$(( $(date +%s%N) / 100000000 ))"
 }
 
-create_user() {
-  sql_root_cli <<EOF
-  IF not exists (SELECT * FROM master.sys.server_principals WHERE NAME = '${SRCDB_ARC_USER}')
-    begin
-      select 'creating user';
-      CREATE LOGIN ${SRCDB_ARC_USER} WITH PASSWORD = '${SRCDB_ARC_PW}';
-      create database ${SRCDB_DB};
-      use ${SRCDB_DB};
-      CREATE USER ${SRCDB_ARC_USER} FOR LOGIN ${SRCDB_ARC_USER} WITH DEFAULT_SCHEMA=dbo;
-      ALTER ROLE db_owner ADD MEMBER ${SRCDB_ARC_USER};
-      ALTER ROLE db_ddladmin ADD MEMBER ${SRCDB_ARC_USER};
-      alter user ${SRCDB_ARC_USER} with default_schema=dbo;
-      ALTER LOGIN ${SRCDB_ARC_USER} WITH DEFAULT_DATABASE=[${SRCDB_DB}];
-    end
-  else
-    select 'user already exists.  skipping';
+drop_user() {
+  cat >$CFG_DIR/drop_user.sql <<EOF
+drop user "${SRCDB_ARC_USER}";
+go
+drop login "${SRCDB_ARC_USER}";
+go
+drop database "${SRCDB_DB}";
+go
 EOF
+  cat $CFG_DIR/drop_user.sql | sql_root_cli
+}
 
+create_user() {  
+  if [ -z "$( echo "SELECT * FROM master.sys.server_principals WHERE NAME = '${SRCDB_ARC_USER}'" | sql_root_cli )" ]; then 
+  echo "creating user ${SRCDB_ARC_USER}"
+  cat >$CFG_DIR/create_user.sql <<EOF
+      CREATE LOGIN "${SRCDB_ARC_USER}" WITH PASSWORD = '${SRCDB_ARC_PW}';
+      go
+      create database "${SRCDB_DB}";
+      go
+      use "${SRCDB_DB}";
+      go
+      CREATE USER "${SRCDB_ARC_USER}" FOR LOGIN "${SRCDB_ARC_USER}" WITH DEFAULT_SCHEMA=dbo;
+      go
+      ALTER ROLE db_owner ADD MEMBER "${SRCDB_ARC_USER}";
+      go
+      ALTER ROLE db_ddladmin ADD MEMBER "${SRCDB_ARC_USER}";
+      go
+      alter user "${SRCDB_ARC_USER}" with default_schema=dbo;
+      go
+      ALTER LOGIN "${SRCDB_ARC_USER}" WITH DEFAULT_DATABASE="${SRCDB_DB}";
+      go
+EOF
+  cat $CFG_DIR/create_user.sql | sql_root_cli
+  else
+  echo "user ${SRCDB_ARC_USER} already exists.  skipping"
+  fi
 }
 
 #
