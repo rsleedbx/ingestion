@@ -1081,11 +1081,10 @@ kill_ycsb() {
 }
 
 kill_arcion() { 
-  echo "enter"
-  for pid in $(ps -eo pid,command | grep -e 'sh .*replicant' -e 'sh .*replicate' | grep -v grep | awk '{print $1}'); do
+  # space in the front sh is important
+  for pid in $(ps -eo pid,command | grep -e '\bsh .*replicant' -e '\bsh .*replicate' | grep -v grep | awk '{print $1}'); do    
     kill_recurse "$pid"
   done 
-  echo "exit"
 }
 
 
