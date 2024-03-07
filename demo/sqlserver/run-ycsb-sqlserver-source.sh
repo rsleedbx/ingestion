@@ -252,7 +252,7 @@ load_dense_data() {
         echo "bcp log at ${LOG_DIR}/03_${y_tabletype}table.log"
 
         # delete datafile
-        # rm $datafile
+        rm $datafile
         # move to the next chunk
         chunk_insertstart=$(( chunk_insertstart + chunk_size ))
         current_chunk_size=$(( y_recordcount - chunk_insertstart ))
@@ -970,6 +970,7 @@ start_arcion() {
   fi
 
   local a_repltype="${a_repltype:-"real-time"}"   # snapshot real-time full
+  local a_root_yamldir="${a_root_yamldir:-"./yaml"}"
   local a_yamldir="${a_yamldir:-"./yaml/change"}"
 
   # check license 
@@ -990,15 +991,17 @@ start_arcion() {
   if [ ! -f ${a_yamldir}/applier_${DSTDB_TYPE}.yaml ]; then echo "${a_yamldir}/applier_${DSTDB_TYPE}.yaml not found." >&2; return 1; fi
 
   # cfg dir has log dir using nine_char_id 
-  local NINE_CHAR_ID=$(nine_char_id)
+  local NINE_CHAR_ID=${NINE_CHAR_ID:-$(nine_char_id)}
   local ARCION_CFG_DIR=$LOG_DIR/$NINE_CHAR_ID
-  local ARCION_LOG_DIR=$ARCION_CFG_DIR
-  local ARCION_META_DIR=$ARCION_CFG_DIR/metadata
-  local ARCION_NULL_DIR=$ARCION_CFG_DIR/null
+  local ARCION_LOG_DIR=$ARCION_CFG_DIR            # cfg is the same as the LOG_DIR 
+  local ARCION_NULL_DIR=$ARCION_LOG_DIR/null      # arcion creates ./*
+  local ARCION_META_DIR=$ARCION_CFG_DIR/metadata  # arcion creates ./NINE_CHAR_ID/NINE_CHAR_ID 
+  local ARCION_STATS_DIR=$LOG_DIR                 # arcion creates ./NINE_CHAR_ID/replication_statistics_history_*.CSV
   mkdir -p $ARCION_LOG_DIR
   mkdir -p $ARCION_CFG_DIR
   mkdir -p $ARCION_META_DIR
   mkdir -p $ARCION_NULL_DIR
+  mkdir -p $ARCION_STATS_DIR
 
   local DBX_DBFS_ROOT=$(echo $DBX_DBFS_ROOT | tr '.@' '_')
   local DBX_USERNAME=$(echo $DBX_USERNAME | tr '.@' '_')
@@ -1010,6 +1013,7 @@ start_arcion() {
   heredoc_file ${a_yamldir}/general.yaml                >${ARCION_CFG_DIR}/general.yaml 
   heredoc_file ${a_yamldir}/extractor.yaml              >${ARCION_CFG_DIR}/extractor.yaml 
   heredoc_file ${a_yamldir}/filter.yaml                 >${ARCION_CFG_DIR}/filter.yaml  
+  heredoc_file ${a_root_yamldir}/statistics.yaml        >${ARCION_CFG_DIR}/statistics.yaml  
   if [ -f ${a_yamldir}/map_${DSTDB_TYPE}.yaml ]; then heredoc_file ${a_yamldir}/map_${DSTDB_TYPE}.yaml > ${ARCION_CFG_DIR}/map.yaml; fi
 
   # write mode
@@ -1032,13 +1036,14 @@ start_arcion() {
   cd $ARCION_CFG_DIR; JAVA_HOME="$ARCION_JAVA_HOME" \
   REPLICANT_MEMORY_PERCENTAGE=${REPLICANT_MEMORY_PERCENTAGE:-10.0} \
   JAVA_OPTS='"-Djava.security.egd=file:/dev/urandom" "-Doracle.jdbc.javaNetNio=false" "-XX:-UseCompressedOops"' \
-  $ARCION_BIN "${a_repltype}" \
-                ${ARCION_CFG_DIR}/src.yaml \
-                ${ARCION_CFG_DIR}/dst.yaml \
-    --applier   ${ARCION_CFG_DIR}/applier.yaml \
-    --general   ${ARCION_CFG_DIR}/general.yaml \
-    --extractor ${ARCION_CFG_DIR}/extractor.yaml \
-    --filter    ${ARCION_CFG_DIR}/filter.yaml \
+  $ARCION_BIN    "${a_repltype}" \
+                 ${ARCION_CFG_DIR}/src.yaml \
+                 ${ARCION_CFG_DIR}/dst.yaml \
+    --applier    ${ARCION_CFG_DIR}/applier.yaml \
+    --general    ${ARCION_CFG_DIR}/general.yaml \
+    --extractor  ${ARCION_CFG_DIR}/extractor.yaml \
+    --filter     ${ARCION_CFG_DIR}/filter.yaml \
+    --statistics ${ARCION_CFG_DIR}/statistics.yaml \
     $MAPPER $METADATA\
     --overwrite --id $NINE_CHAR_ID $WRITE_MODE >${ARCION_CFG_DIR}/arcion.log 2>&1 &
     set +x

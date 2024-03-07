@@ -16,8 +16,13 @@ PROG_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 # util functions 
 kill_sql_exporter() { 
-  # space in the front sh is important
   for pid in $(ps -e -o comm,pid | grep -e '^sql_exporter' | grep -v grep | awk '{print $NF}'); do    
+    echo kill_recurse "$pid"
+    kill_recurse "$pid"
+  done 
+}
+kill_node_exporter() { 
+  for pid in $(ps -e -o comm,pid | grep -e '^node_exporter' | grep -v grep | awk '{print $NF}'); do    
     echo kill_recurse "$pid"
     kill_recurse "$pid"
   done 
@@ -72,6 +77,15 @@ sed -i.bak -e "s/prom_user:prom_password@dbserver1.example.com:1433/sa:Passw0rd@
 # restart sql_exporter if already running
 kill_sql_exporter >/dev/null
 pushd $PROM_BASEDIR/sql_exporter-0.14.0.linux-amd64 >/dev/null
-$PROM_BASEDIR/sql_exporter-0.14.0.linux-amd64/sql_exporter >/var/tmp/$SRCDB_ARC_USER/sqlserver/sql_exporter.log 2>&1 &
-echo "started $PROM_BASEDIR/sql_exporter-0.14.0.linux-amd64/sql_exporter.  log at /var/tmp/$SRCDB_ARC_USER/sqlserver/sql_exporter.log"
+LOG_FILE=/var/tmp/$SRCDB_ARC_USER/sqlserver/logs/sql_exporter.log
+$PROM_BASEDIR/sql_exporter-0.14.0.linux-amd64/sql_exporter >$LOG_FILE 2>&1 &
+echo "started $PROM_BASEDIR/sql_exporter-0.14.0.linux-amd64/sql_exporter.  log at $LOG_FILE"
+popd >/dev/null
+
+# restart node_exporter if already running
+kill_node_exporter >/dev/null
+pushd $PROM_BASEDIR/node_exporter-1.7.0.linux-amd64 >/dev/null
+LOG_FILE=/var/tmp/$SRCDB_ARC_USER/sqlserver/logs/node_exporter.log
+$PROM_BASEDIR/node_exporter-1.7.0.linux-amd64/node_exporter --collector.disable-defaults --collector.vmstat >$LOG_FILE 2>&1 &
+echo "started $PROM_BASEDIR/node_exporter-1.7.0.linux-amd64/node_exporter.  log at $LOG_FILE"
 popd >/dev/null
