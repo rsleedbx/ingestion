@@ -1,3 +1,6 @@
+# local mlflow artifact
+mlruns/
+# bunch others 
 logs/
 temp/
 config/
