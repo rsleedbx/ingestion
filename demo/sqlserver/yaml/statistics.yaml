@@ -1,0 +1,11 @@
+enable: true
+purge-statistics:
+  enable: true
+  purge-stats-before-days: 30
+  purge-stats-interval-iterations: 100
+storage:
+  stats-archive-type:  FILE_SYSTEM #stats-archive-type can be  METADATA_DB, FILE_SYSTEM, DST_DB
+  storage-location: ${ARCION_STATS_DIR} #Should be used only when stats-archive-type is FILE_SYSTEM
+  #format: CSV #format can be CSV, JSON. Default is CSV. Should be used only when stats-archive-type is FILE_SYSTEM
+  #catalog: "io" #Should be used only when stats-archive-type is DST_DB
+  #schema: "replicate" #Should be used only when stats-archive-type is DST_DB
