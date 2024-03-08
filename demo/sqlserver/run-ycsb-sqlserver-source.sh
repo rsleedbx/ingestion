@@ -885,6 +885,7 @@ start_ycsb() {
     -p fieldcount=${field_count:-10} \
     -p fieldlength=${y_fieldlength:-100} \
     -p jdbc.prependtimestamp=true \
+    -p exporter=com.yahoo.ycsb.measurements.exporter.JSONArrayMeasurementsExporter \
     -threads ${!_y_threads:-1} \
     -target ${!_y_target:-1} "${@}" >$YCSB_LOG_DIR/ycsb.$table_name.log 2>&1 &
     
