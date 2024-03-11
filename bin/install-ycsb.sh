@@ -10,7 +10,7 @@ fi
 # download ycsb
 if [ ! -d /opt/stage/ycsb/ycsb-jdbc-binding-0.18.0-SNAPSHOT ]; then
   pushd /opt/stage/ycsb >/dev/null
-  [ ! -f ycsb-jdbc-binding-0.18.0-SNAPSHOT.tar.gz ]  && curl -O --location https://github.com/arcionlabs/YCSB/releases/download/arcion-24.01/ycsb-jdbc-binding-0.18.0-SNAPSHOT.tar.gz 
+  [ ! -f ycsb-jdbc-binding-0.18.0-SNAPSHOT.tar.gz ]  && curl -O --location https://github.com/arcionlabs/YCSB/releases/download/arcion-24.03/ycsb-jdbc-binding-0.18.0-SNAPSHOT.tar.gz
   [ -f ycsb-jdbc-binding-0.18.0-SNAPSHOT.tar.gz ] && gzip -dc *.gz | tar -xvf -
   popd >/dev/null
     echo "YCSB  /opt/stage/ycsb/ycsb-jdbc-binding-0.18.0-SNAPSHOT  downloaded"

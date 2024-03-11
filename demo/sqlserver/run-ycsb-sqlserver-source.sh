@@ -139,19 +139,18 @@ convert_table_stat_to_var() {
   readarray -d ',' -t table_stat_array < <(echo -n "$1")
   table_name=${table_stat_array[0],,} # lowercase the tablename
   record_start=${table_stat_array[1]} 
-  record_count=${table_stat_array[2]} 
+  record_end=${table_stat_array[2]} 
   field_count=${table_stat_array[3]} 
+  record_count=0
 
   if [[ ${table_stat_array[1]} == "NULL" ]] || [[ -z "${table_stat_array[1]}" ]]; then
     record_start=0
-  else 
-    record_start=$(( ${table_stat_array[1]} + 1 )) 
   fi   
 
   if [[ ${table_stat_array[2]} == "NULL" ]] || [[ -z "${table_stat_array[2]}" ]]; then
     record_count=0
-  else 
-    record_count=$(( ${table_stat_array[2]} + 1 )) 
+  else
+    record_count=$(( table_stat_array[2] - record_start + 1 ))
   fi   
   
   if [[ ${table_stat_array[3]} == "NULL" ]] || [[ -z "${table_stat_array[3]}" ]]; then
@@ -182,6 +181,7 @@ load_dense_data() {
     # return table_name, record_count, field_count, 
     local table_name
     local record_start=0
+    local record_end=0
     local record_count=0
     local field_count=10
     table_stat_array=$(cat $CFG_DIR/list_table_counts.csv 2>/dev/null | grep "^YCSB${y_tabletype^^}${TABLE_INST_NAME},")
@@ -848,6 +848,7 @@ start_ycsb() {
     # read from the stat
     local table_name
     local record_start
+    local record_end
     local record_count
     local field_count
     convert_table_stat_to_var "${tablestat}"
@@ -855,7 +856,16 @@ start_ycsb() {
     if [[ "${table_name,,}" =~ "dense" ]]; then tabletype="dense"; else tabletype="sparse";fi
     if [ -z "${record_count}" ] || [ "${record_count}" = "[NULL]" ]; then echo "record_count not defined.  run list_table_counts or load data"; return 1; fi
     if [ -z "${field_count}"  ] || [ "${field_count}"  = "[NULL]" ]; then echo "field_count not defined.  run list_table_counts"; return 1; fi
-  
+
+    # ycsb parameter name of insert is actually update  
+    local deletestart=$record_start
+    # the / 1 trucates the float to int in bc
+    # note y_del_proportion 100 x the records are mark for delete.
+    local deletecount=$( bc <<< "$record_count * ${y_del_proportion:-0} * 100 / 1" )
+    local updatestart=$(( record_start + deletecount ))
+    local updatecount=$(( record_count - deletecount ))
+    local insertstart=$(( record_end + 1 )) 
+
     # read from the env vars
     local _y_threads=$(var_name "threads" "$tabletype")
     local _y_target=$(var_name "target" "$tabletype")
@@ -863,10 +873,6 @@ start_ycsb() {
     local _y_multiupdatesize=$(var_name "multiupdatesize" "$tabletype")
     local _y_multideletesize=$(var_name "multideletesize" "$tabletype")
     local _y_multiinsertsize=$(var_name "multiinsertsize" "$tabletype")
-
-    if [ "${!_y_multiupdatesize:-1}" = "1" ]; then local y_usemultiupdate="false"; else local y_usemultiupdate="true"; fi
-
-    echo ${table_name} ${!_y_multiupdatesize} ${y_usemultiupdate}
 
     [ -n "$YCSB_DEBUG" ] && echo "table_name=$table_name tabletype=$tabletype record_count=$record_count field_count=$field_count _y_threads=${!_y_threads} _y_target=${!_y_target} _y_fieldlength=${!_y_fieldlength}"
 
@@ -881,21 +887,21 @@ start_ycsb() {
     -p jdbc.autocommit=true \
     -p jdbc.fetchsize=10 \
     -p db.batchsize=1000 \
-    -p deletestart=${record_start:-0} \
-    -p insertstart=${record_start:-0} \
-    -p recordcount=${record_count:-1000} \
-    -p operationcount=20 \
-    -p jdbc.batchupdateapi=true \
+    -p operationcount=10000000 \
     -p jdbc.ycsbkeyprefix=false \
     -p insertorder=ordered \
     -p readproportion=0 \
     -p deleteproportion=${y_del_proportion:-0} \
+    -p deletestart=${deletestart} \
+    -p deletecount=${deletecount} \
     -p updateproportion=${y_upd_proportion:-1} \
+    -p insertstart=${updatestart} \
+    -p insertcount=${updatecount} \
     -p insertproportion=${y_ins_proportion:-0} \
+    -p recordcount=${insertstart} \
     -p fieldcount=${field_count:-10} \
     -p fieldlength=${y_fieldlength:-100} \
     -p jdbc.prependtimestamp=true \
-    -p jdbc.usemultiupdate=${y_usemultiupdate} \
     -p jdbc.multiupdatesize=${!_y_multiupdatesize:-1} \
     -p jdbc.multideletesize=${!_y_multideletesize:-1} \
     -p jdbc.multiinsertsize=${!_y_multiinsertsize:-1} \
