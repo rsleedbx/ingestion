@@ -860,6 +860,13 @@ start_ycsb() {
     local _y_threads=$(var_name "threads" "$tabletype")
     local _y_target=$(var_name "target" "$tabletype")
     local _y_fieldlength=$(var_name "fieldlength" "$tabletype")
+    local _y_multiupdatesize=$(var_name "multiupdatesize" "$tabletype")
+    local _y_multideletesize=$(var_name "multideletesize" "$tabletype")
+    local _y_multiinsertsize=$(var_name "multiinsertsize" "$tabletype")
+
+    if [ "${!_y_multiupdatesize:-1}" = "1" ]; then local y_usemultiupdate="false"; else local y_usemultiupdate="true"; fi
+
+    echo ${table_name} ${!_y_multiupdatesize} ${y_usemultiupdate}
 
     [ -n "$YCSB_DEBUG" ] && echo "table_name=$table_name tabletype=$tabletype record_count=$record_count field_count=$field_count _y_threads=${!_y_threads} _y_target=${!_y_target} _y_fieldlength=${!_y_fieldlength}"
 
@@ -874,24 +881,31 @@ start_ycsb() {
     -p jdbc.autocommit=true \
     -p jdbc.fetchsize=10 \
     -p db.batchsize=1000 \
+    -p deletestart=${record_start:-0} \
     -p insertstart=${record_start:-0} \
     -p recordcount=${record_count:-1000} \
-    -p operationcount=10000000 \
+    -p operationcount=20 \
     -p jdbc.batchupdateapi=true \
     -p jdbc.ycsbkeyprefix=false \
     -p insertorder=ordered \
     -p readproportion=0 \
+    -p deleteproportion=0 \
     -p updateproportion=1 \
+    -p insertproportion=0 \
     -p fieldcount=${field_count:-10} \
     -p fieldlength=${y_fieldlength:-100} \
     -p jdbc.prependtimestamp=true \
-    -p exporter=com.yahoo.ycsb.measurements.exporter.JSONArrayMeasurementsExporter \
+    -p jdbc.usemultiupdate=${y_usemultiupdate} \
+    -p jdbc.multiupdatesize=${!_y_multiupdatesize:-1} \
+    -p jdbc.multideletesize=${!_y_multideletesize:-1} \
+    -p jdbc.multiinsertsize=${!_y_multiinsertsize:-1} \
     -threads ${!_y_threads:-1} \
     -target ${!_y_target:-1} "${@}" >$YCSB_LOG_DIR/ycsb.$table_name.log 2>&1 &
     
     done
 
     popd >/dev/null
+
 
     echo "ycsb can be killed with . ./demo/sqlserver/run-ycsb-sqlserver-source.sh; kill_ycsb)"
 
