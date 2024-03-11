@@ -889,9 +889,9 @@ start_ycsb() {
     -p jdbc.ycsbkeyprefix=false \
     -p insertorder=ordered \
     -p readproportion=0 \
-    -p deleteproportion=0 \
-    -p updateproportion=1 \
-    -p insertproportion=0 \
+    -p deleteproportion=${y_del_proportion:-0} \
+    -p updateproportion=${y_upd_proportion:-1} \
+    -p insertproportion=${y_ins_proportion:-0} \
     -p fieldcount=${field_count:-10} \
     -p fieldlength=${y_fieldlength:-100} \
     -p jdbc.prependtimestamp=true \
