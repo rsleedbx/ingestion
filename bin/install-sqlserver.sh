@@ -51,7 +51,14 @@ if [ -z "$(dpkg -l mssql-server 2>/dev/null)" ]; then
     curl https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
     sudo add-apt-repository -y "$(wget -qO- https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/mssql-server-2022.list)"
     sudo apt-get update -y 
-    sudo apt-get install -y dialog mssql-server --fix-missing
+    sudo apt-get install -y dialog 
+
+    # use local repo if specified
+    if [ -n "$SQL_SERVER_DPKG" ] && [ -d "$SQL_SERVER_DPKG" ]; then
+        sudo dpkg -i $SQL_SERVER_DPKG/mssql-server_*.deb
+    else
+        sudo apt-get install -y mssql-server --fix-missing
+    fi
 
     # TODO getting not found http://security.ubuntu.com/ubuntu/pool/main/g/glibc/libc6-dbg_2.35-0ubuntu3.5_amd64.deb
 
