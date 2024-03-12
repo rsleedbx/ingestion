@@ -26,6 +26,15 @@ else
     echo "numfmt found"
 fi
 
+# bc
+if [ -z "$(dpkg -l bc 2>/dev/null)" ]; then 
+    sudo apt-get update -y
+    sudo apt-get install -y bc
+else
+    echo "bc found"
+fi
+
+
 for inst in $(find /opt/stage/ycsb -name "lib"); do
   dir="$(dirname $inst)/lib"
   echo "checking jar(s) in $dir for updates"
