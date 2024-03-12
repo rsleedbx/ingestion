@@ -1047,10 +1047,10 @@ start_arcion() {
 
   # metadata
   local METADATA=""
-  if [[ "${DSTDB_TYPE,,}" = 'null' ]]; then 
+  #if [[ "${DSTDB_TYPE,,}" = 'null' ]]; then 
       heredoc_file ${a_yamldir}/metadata.yaml >${ARCION_CFG_DIR}/metadata.yaml  
       METADATA="--metadata ${ARCION_CFG_DIR}/metadata.yaml"; 
-  fi
+  #fi
 
   # run arcion
   set -x 
