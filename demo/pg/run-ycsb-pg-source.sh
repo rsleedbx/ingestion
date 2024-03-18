@@ -9,6 +9,7 @@ PROG_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 (return 0 2>/dev/null) && export SCRIPT_SOURCED=1 || export SCRIPT_SOURCED=0
 
 # load the libary
+. ${PROG_DIR}/../../bin/utils.sh
 . ${PROG_DIR}/../../bin/install-postgres.sh
 . ${PROG_DIR}/../../libsh/ini_jdbc.sh
 
@@ -206,16 +207,12 @@ load_dense_data() {
         make_ycsb_dense_data $datafile ${TABLE_INST}
         echo "data file to be purged ${datafile}"
         
-        # run the bulk loaders
-        # batch of 1M
-        # -u trust certifcate
-	set -x
-  bulk_load
-        set +x
+        # database specific
+	      bulk_load
         echo "log at ${LOG_DIR}/03_${y_tabletype}table.log"
 
         # delete datafile
-        ##rm $datafile
+        rm $datafile
         # move to the next chunk
         chunk_insertstart=$(( chunk_insertstart + chunk_size ))
         current_chunk_size=$(( y_recordcount - chunk_insertstart ))
@@ -239,9 +236,9 @@ make_ycsb_dense_data() {
         -fs|--fillstart) local y_fillstart="$1"; shift; ((params_processed++)); ;;
         -fe|--fillend) local y_fillend="$1"; shift; ((params_processed++)); ;;
         -fc|--fieldcount) local y_fieldcount="$1"; shift; ((params_processed++)); ;;
-        -fl|--fieldlength) local fieldlength="$1"; shift; ((params_processed++)); ;;
-        -is|--insertstart) local insertstart="$1"; shift; ((params_processed++)); ;;
-        -rc|--recordcount) local recordcount="$1"; shift; ((params_processed++)); ;;
+        -fl|--fieldlength) local y_fieldlength="$1"; shift; ((params_processed++)); ;;
+        -is|--insertstart) local chunk_insertstart="$1"; shift; ((params_processed++)); ;;
+        -rc|--recordcount) local chunk_recordcount="$1"; shift; ((params_processed++)); ;;
         -df|--datafile) local datafile="$1"; shift; ((params_processed++)); ;;
         *) echo "unknown flag '$param'"; return 1; ;;
       esac
@@ -328,24 +325,6 @@ jdbc_root_cli() {
   fi
 }
 
-# setup 2GB RAM
-set_sqlserver_ram() {
-  local DBX_USERNAME=${1}
-  sql_root_cli <<'EOF'
-sp_configure 'show advanced options', 1
-GO
-RECONFIGURE;
-GO
-sp_configure 'max server memory', 1024;
-GO
-RECONFIGURE;
-GO  
-EOF
-
-  # setup tmux
-  send_command_tmux_window "$DBX_USERNAME" "sqluser" "/opt/mssql-tools18/bin/sqlcmd -I -d $SRCDB_DB -S $SRCDB_HOST,$SRCDB_PORT -U ${SRCDB_ARC_USER} -P ${SRCDB_ARC_PW} -C"
-  send_command_tmux_window "$DBX_USERNAME" "sqlroot" "/opt/mssql-tools18/bin/sqlcmd -I -S $SRCDB_HOST,$SRCDB_PORT -U ${SRCDB_ROOT_USER} -P ${SRCDB_ROOT_PW} -C"
-}
 
 jdbc_cli() {
   if [ -z "$(command -v jsqsh)" ]; then export PATH=/opt/stage/bin/jsqsh-dist-3.0-SNAPSHOT/bin$:$PATH; fi
@@ -532,187 +511,9 @@ EOF
 }
 
 count_ycsb_table() {
-  sql_cli <<EOF | head -n 1
-select count(*) from ${fq_table_name}
-go
+  sql_cli <<EOF
+select count(*) from ${fq_table_name};
 EOF
-# ; -m csv required for jsqsh
-
-}
-
-enable_cdc() {
-
-  rm $CFG_DIR/enable_cdc.sql 2>/dev/null
-
-  echo "enable cdc on database ${SRCDB_DB}"
-  sql_root_cli <<EOF
-    -- required for CDC
-    if not exists (select name from sys.databases where is_cdc_enabled = 1 and name in ('${SRCDB_DB}'))
-      begin
-        select 'EXEC sys.sp_cdc_enable_db;';  
-        use ${SRCDB_DB};
-        EXEC sys.sp_cdc_enable_db; 
-      end
-    else
-      select 'skip EXEC sys.sp_cdc_enable_db;';  
-EOF
-
-  # enable cdc on table ${tablename}
-  list_regular_tables | while read tablename; do
-    cat >>$CFG_DIR/enable_cdc.sql <<EOF
-      if not exists (select t.name as table_name, s.name as schema_name, t.is_tracked_by_cdc 
-        from sys.tables t
-        left join sys.schemas s on t.schema_id = s.schema_id
-        where t.name in ('$tablename') and t.is_tracked_by_cdc=1)
-        begin
-          select 'EXEC sys.sp_cdc_enable_table  @source_schema = ${SRCDB_SCHEMA:-dbo}, @source_name = $tablename,  @role_name = NULL, @supports_net_changes = 0;';
-
-          EXEC sys.sp_cdc_enable_table  
-          @source_schema = '${SRCDB_SCHEMA:-dbo}',  
-          @source_name   = '$tablename',  
-          @role_name     = NULL,  
-          @supports_net_changes = 0;
-        end
-      else
-          select 'skip EXEC sys.sp_cdc_enable_table  @source_schema = ${SRCDB_SCHEMA:-dbo}, @source_name = $tablename,  @role_name = NULL, @supports_net_changes = 0;';
-EOF
-  done
-  if [ -s $CFG_DIR/enable_cdc.sql ]; then 
-    cat $CFG_DIR/enable_cdc.sql | sql_cli
-  fi
-}
-
-disable_cdc() {
-
-  rm $CFG_DIR/disable_cdc.sql 2>/dev/null
-
-  # disable cdc on table ${tablename}
-  list_regular_tables | while read tablename; do
-    cat >>$CFG_DIR/disable_cdc.sql <<EOF   
-  if exists (select t.name as table_name, s.name as schema_name, t.is_tracked_by_cdc 
-      from sys.tables t
-      left join sys.schemas s on t.schema_id = s.schema_id
-      where t.name in ('$tablename') and t.is_tracked_by_cdc=1)
-    begin
-      select 'EXEC sys.sp_cdc_disable_table @source_schema=${SRCDB_SCHEMA:-dbo},@source_name=$tablename, @capture_instance=all;'
-      EXEC sys.sp_cdc_disable_table  
-        @source_schema = '${SRCDB_SCHEMA:-dbo}',  
-        @source_name   = '$tablename',  
-        @capture_instance = 'all'
-    end
-  else
-      select 'skip EXEC sys.sp_cdc_disable_table @source_schema=${SRCDB_SCHEMA:-dbo},@source_name=$tablename, @capture_instance=all;'
-EOF
-  done
-  if [ -s $CFG_DIR/disable_cdc.sql ]; then 
-    cat $CFG_DIR/disable_cdc.sql | sql_cli
-  fi
-
-  # disable cdc on database ${SRCDB_DB}
-  sql_root_cli <<EOF
-    if exists (select name from sys.databases where is_cdc_enabled = 1 and name in ('${SRCDB_DB}'))
-      begin
-        select 'EXEC sys.sp_cdc_disable_db;'; 
-        use ${SRCDB_DB};
-        EXEC sys.sp_cdc_disable_db;
-      end 
-    else
-      select 'skip EXEC sys.sp_cdc_disable_db;'; 
-EOF
-}
-
-enable_change_tracking() {
-  rm $CFG_DIR/enable_change_tracking.sql 2>/dev/null
-
-  echo "enable change tracking on database ${SRCDB_DB}"
-  sql_root_cli <<EOF
-  -- required for change tracking
-IF NOT EXISTS (select database_id from sys.change_tracking_databases  where database_id=DB_ID('${SRCDB_DB}'))  
-  begin
-    select 'ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = ON  (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON);';
-    ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = ON  (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON);
-  end
-else
-    select 'skip ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = ON  (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON);';
-EOF
-
-  # "enable DDL tracking"
-  cat ${PROG_DIR}/sql/change/change.sql | sql_cli
-
-  # build a list of tables to enable
-  list_regular_tables | while read tablename; do  
-cat >>$CFG_DIR/enable_change_tracking.sql <<EOF
-IF NOT EXISTS (select t.name 
-    from sys.change_tracking_tables i
-    left join sys.tables t
-    on i.object_id = t.object_id where t.name='${tablename}')  
-  begin
-    select 'ALTER TABLE ${tablename} ENABLE CHANGE_TRACKING;';
-    ALTER TABLE ${tablename} ENABLE CHANGE_TRACKING;
-  end
-else
-    select 'skip ALTER TABLE ${tablename} ENABLE CHANGE_TRACKING;';
-EOF
-  done
-  if [ -s $CFG_DIR/enable_change_tracking.sql ]; then 
-    cat $CFG_DIR/enable_change_tracking.sql | sql_cli
-  fi
-}
-
-disable_change_tracking() {
-  rm $CFG_DIR/disable_change_tracking.sql 2>/dev/null
-
-  echo "disable/drop trigger replicate_io_audit_ddl_trigger"
-  cat <<EOF | sql_cli
-IF EXISTS (select name from sys.all_sql_modules m inner join sys.triggers t on m.object_id = t.object_id where name='replicate_io_audit_ddl_trigger')
-  begin
-    select 'DISABLE TRIGGER "replicate_io_audit_ddl_trigger" ON DATABASE';
-    DISABLE TRIGGER "replicate_io_audit_ddl_trigger" ON DATABASE;
-  end
-else
-    select 'skip DISABLE TRIGGER "replicate_io_audit_ddl_trigger" ON DATABASE';
-
-
-IF EXISTS (select name from sys.all_sql_modules m inner join sys.triggers t on m.object_id = t.object_id where name='replicate_io_audit_ddl_trigger')
-  begin
-    select 'drop trigger "replicate_io_audit_ddl_trigger" on DATABASE';
-    drop trigger "replicate_io_audit_ddl_trigger" on DATABASE;
-  end
-else
-    select 'skip drop trigger "replicate_io_audit_ddl_trigger" on DATABASE';
-EOF
-
-  # disable tracking on regular_tables
-  list_regular_tables | while read tablename; do  
-cat >>$CFG_DIR/disable_change_tracking.sql <<EOF
-IF EXISTS (select t.name 
-    from sys.change_tracking_tables i
-    left join sys.tables t
-    on i.object_id = t.object_id where t.name='${tablename}')
-  begin
-    select 'ALTER TABLE ${tablename} DISABLE CHANGE_TRACKING';
-    ALTER TABLE ${tablename} DISABLE CHANGE_TRACKING;
-  end
-else
-    select 'skip ALTER TABLE ${tablename} DISABLE CHANGE_TRACKING';
-EOF
-  done
-  if [ -s $CFG_DIR/disable_change_tracking.sql ]; then 
-    cat $CFG_DIR/disable_change_tracking.sql | sql_cli
-  fi
-
-  # disable change tracking on database ${SRCDB_DB} 
-  sql_root_cli <<EOF
-  -- required for change tracking
-IF EXISTS (select database_id from sys.change_tracking_databases  where database_id=DB_ID('${SRCDB_DB}'))  
-  begin
-    select 'ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = OFF';
-    ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = OFF;
-  end
-else
-  select 'change tracking on database already disabled';
-EOF
-
 }
 
 load_ycsb() {
@@ -845,9 +646,9 @@ wait_log() {
   LOG_WAIT_SEC=1
   # -f is file exists
   # -s is empty
-  while [ ! -f ${LOGFILE} ] && [ ! -s ${LOGFILE} ]; do 
+  while [ ! -f "${LOGFILE}" ] && [ ! -s "${LOGFILE}" ]; do 
     sleep ${LOG_WAIT_SEC}
-    echo waiting for ${LOGFILE}
+    echo "waiting for ${LOGFILE}"
   done
 }
 
@@ -1073,7 +874,7 @@ restart_ycsb() {
 
 status_database() {
 
-cat <<EOF | jdbc_root_cli
+cat <<EOF | jdbc_root_cli "$@"
 
 -- show catalog
 select name, suser_sname(owner_sid) "owner_name", is_cdc_enabled, is_change_feed_enabled, is_published, is_encrypted from sys.databases
