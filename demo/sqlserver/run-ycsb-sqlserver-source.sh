@@ -887,7 +887,7 @@ start_ycsb() {
     -p jdbc.autocommit=true \
     -p jdbc.fetchsize=10 \
     -p db.batchsize=1000 \
-    -p operationcount=10000000 \
+    -p operationcount=1000000000 \
     -p jdbc.ycsbkeyprefix=false \
     -p insertorder=ordered \
     -p readproportion=0 \
@@ -902,6 +902,7 @@ start_ycsb() {
     -p fieldcount=${field_count:-10} \
     -p fieldlength=${y_fieldlength:-100} \
     -p jdbc.prependtimestamp=true \
+    -p dataintegrity=false \
     -p jdbc.multiupdatesize=${!_y_multiupdatesize:-1} \
     -p jdbc.multideletesize=${!_y_multideletesize:-1} \
     -p jdbc.multiinsertsize=${!_y_multiinsertsize:-1} \
