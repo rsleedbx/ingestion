@@ -1129,9 +1129,9 @@ show_arcion_trace() {
 
 
 # Parameters
-#   YCSB_TARGET=${1:-0}
-#   SVC_NAME=${2:-cdb_svc}
+#   $1=time interval
 restart_ycsb() {
+  local time_interval_sec=${1:-60}
   while [ 1 ]; do
       wait_log ${YCSB_LOG_DIR}/ycsb.run.tps1.$$
       tail -f ${YCSB_LOG_DIR}/ycsb.run.tps1.$$ | awk '/^Error in processing update to table: usertablejava.sql.SQLException: Closed Statement/ {print "Error"; exit 1} {print $0}'
@@ -1151,7 +1151,14 @@ restart_ycsb() {
       else
           break
       fi 
+      sleep ${time_interval_sec}
+      kill_ycsb
   done
+}
+
+# restart ycsb at periodic basis
+watchdog_ycsb() {
+  restart_ycsb &
 }
 
 status_database() {
