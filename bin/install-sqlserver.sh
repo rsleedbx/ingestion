@@ -4,7 +4,7 @@ LOGNAME=$(logname 2>/dev/null)
 LOGNAME=${LOGNAME:-root}
 
 start_sqlserver() {
-    sudo systemctl start mssql-server
+    sudo systemctl restart mssql-server
     # on gcp, systemctl can't run and will exit with rc=1
     if [ "$?" != "0" ]; then
             sudo -b -n -u mssql /opt/mssql/bin/sqlservr "$@" >/dev/null
@@ -18,7 +18,7 @@ start_sqlserver() {
 }
 
 stop_sqlserver() {
-    sudo systemctl start mssql-server
+    sudo systemctl stop mssql-server
     # on gcp, systemctl can't run and will exit with rc=1
     if [ "$?" != "0" ]; then
         sudo pkill sqlservr
