@@ -8,6 +8,11 @@ fi
 PROG_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 (return 0 2>/dev/null) && export SCRIPT_SOURCED=1 || export SCRIPT_SOURCED=0
 
+# load the libary
+. ${PROG_DIR}/../../bin/utils.sh
+. ${PROG_DIR}/../../bin/install-postgres.sh
+. ${PROG_DIR}/../../libsh/ini_jdbc.sh
+
 export ARCION_BASEDIR=/opt/stage/arcion
 
 send_command_tmux_window() {
@@ -24,44 +29,7 @@ nine_char_id() {
     printf "%09x\n" "$(( $(date +%s%N) / 100000000 ))"
 }
 
-drop_user() {
-  cat >$CFG_DIR/drop_user.sql <<EOF
-drop user "${SRCDB_ARC_USER}";
-go
-drop login "${SRCDB_ARC_USER}";
-go
-drop database "${SRCDB_DB}";
-go
-EOF
-  cat $CFG_DIR/drop_user.sql | sql_root_cli
-}
 
-create_user() {  
-  if [ -z "$( echo "SELECT * FROM master.sys.server_principals WHERE NAME = '${SRCDB_ARC_USER}'" | sql_root_cli )" ]; then 
-  echo "creating user ${SRCDB_ARC_USER}"
-  cat >$CFG_DIR/create_user.sql <<EOF
-      CREATE LOGIN "${SRCDB_ARC_USER}" WITH PASSWORD = '${SRCDB_ARC_PW}';
-      go
-      create database "${SRCDB_DB}";
-      go
-      use "${SRCDB_DB}";
-      go
-      CREATE USER "${SRCDB_ARC_USER}" FOR LOGIN "${SRCDB_ARC_USER}" WITH DEFAULT_SCHEMA=dbo;
-      go
-      ALTER ROLE db_owner ADD MEMBER "${SRCDB_ARC_USER}";
-      go
-      ALTER ROLE db_ddladmin ADD MEMBER "${SRCDB_ARC_USER}";
-      go
-      alter user "${SRCDB_ARC_USER}" with default_schema=dbo;
-      go
-      ALTER LOGIN "${SRCDB_ARC_USER}" WITH DEFAULT_DATABASE="${SRCDB_DB}";
-      go
-EOF
-  cat $CFG_DIR/create_user.sql | sql_root_cli
-  else
-  echo "user ${SRCDB_ARC_USER} already exists.  skipping"
-  fi
-}
 
 #
 kill_recurse() {
@@ -118,7 +86,7 @@ load_sparse_data_cnt() {
   local y_fillend=${y_fillend:-0}
   local y_tabletype=sparse
 
-  echo -n "starting sparse load. $YCSB_LOG_DIR/ycssparse.load.log"
+  echo -n "starting sparse load. $YCSB_LOG_DIR/ycsbsparse.load.log"
   rm $YCSB_LOG_DIR/ycsbsparse.load.log 2>/dev/null
   touch $YCSB_LOG_DIR/ycsbsparse.load.log
   for i in $(seq $TABLE_COUNTSTART $TABLE_COUNT); do
@@ -211,11 +179,7 @@ load_dense_data() {
       y_insertstart=$record_count
       echo "inserting insertstart=$y_insertstart insert ends at ycsb_key=$(( $y_recordcount - 1 ))"
 
-      # prepare bulk loader
-      # https://learn.microsoft.com/en-us/sql/relational-databases/import-export/use-a-format-file-to-skip-a-table-column-sql-server?view=sql-server-ver16
       echo "y_fieldcount=$y_fieldcount y_fillstart=$y_fillstart y_fillend=$y_fillend"
-      y_fieldcount=${y_fieldcount} ${PROG_DIR}/sql/03_usertable.fmt.py > ${LOG_DIR}/03_${y_tabletype}table.fmt
-      echo "${LOG_DIR}/03_${y_tabletype}table.fmt" 
 
       datafile=$(mktemp -p $LOG_DIR)
 
@@ -243,13 +207,9 @@ load_dense_data() {
         make_ycsb_dense_data $datafile ${TABLE_INST}
         echo "data file to be purged ${datafile}"
         
-        # run the bulk loaders
-        # batch of 1M
-        # -u trust certifcate
-	set -x
-	bcp "YCSB${y_tabletype^^}${TABLE_INST_NAME}" in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d "${SRCDB_ARC_USER}" -f "${LOG_DIR}/03_${y_tabletype}table.fmt" -b "${progress_interval_rows}" | tee ${LOG_DIR}/03_${y_tabletype}table.log
-        set +x
-        echo "bcp log at ${LOG_DIR}/03_${y_tabletype}table.log"
+        # database specific
+	      bulk_load
+        echo "log at ${LOG_DIR}/03_${y_tabletype}table.log"
 
         # delete datafile
         rm $datafile
@@ -276,9 +236,9 @@ make_ycsb_dense_data() {
         -fs|--fillstart) local y_fillstart="$1"; shift; ((params_processed++)); ;;
         -fe|--fillend) local y_fillend="$1"; shift; ((params_processed++)); ;;
         -fc|--fieldcount) local y_fieldcount="$1"; shift; ((params_processed++)); ;;
-        -fl|--fieldlength) local fieldlength="$1"; shift; ((params_processed++)); ;;
-        -is|--insertstart) local insertstart="$1"; shift; ((params_processed++)); ;;
-        -rc|--recordcount) local recordcount="$1"; shift; ((params_processed++)); ;;
+        -fl|--fieldlength) local y_fieldlength="$1"; shift; ((params_processed++)); ;;
+        -is|--insertstart) local chunk_insertstart="$1"; shift; ((params_processed++)); ;;
+        -rc|--recordcount) local chunk_recordcount="$1"; shift; ((params_processed++)); ;;
         -df|--datafile) local datafile="$1"; shift; ((params_processed++)); ;;
         *) echo "unknown flag '$param'"; return 1; ;;
       esac
@@ -307,7 +267,7 @@ make_ycsb_dense_data() {
 
     # generate data
     seq ${chunk_insertstart} $(( ${chunk_recordcount} - 1 )) | \
-    awk "{printf \"%10d\",\$1; 
+    awk "{printf \"%d\",\$1; 
       # prefix nulls if any
       for (i=1;i<${y_fillstart};i++) printf \",\";
       # data
@@ -317,39 +277,6 @@ make_ycsb_dense_data() {
       printf \"\n\"}" > ${datafile}
 }
 
-sql_cli() {
-  if [ -z "$(command -v sqlcmd)" ]; then export PATH=/opt/mssql-tools18/bin:$PATH; fi
-  # when stdin is redirected
-  # -I enable quite identified
-  # -h-1 remove header and -----
-  # -W remove trailing spaces
-  # -s ","
-  # -w width of the screen
-  if [ ! -t 0 ]; then
-    local sql_cli_batch_mode="-h-1 -W -s , -w 1024"
-    cat <(printf "set NOCOUNT ON;\ngo\n") - | \
-    sqlcmd -I -d "$SRCDB_DB" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -C $sql_cli_batch_mode "$@"
-  else
-    sqlcmd -I -d "$SRCDB_DB" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -C $sql_cli_batch_mode "$@"
-  fi
-}
-
-sql_root_cli() {
-  if [ -z "$(command -v sqlcmd)" ]; then export PATH=/opt/mssql-tools18/bin:$PATH; fi
-  # when stdin is redirected
-  # -I enable quite identified
-  # -h-1 remove header and -----
-  # -W remove trailing spaces
-  # -s ","
-  # -w width of the screen
-  if [ ! -t 0 ]; then
-    local sql_cli_batch_mode="-h-1 -W -s , -w 1024"
-    cat <(printf "set NOCOUNT ON;\ngo\n") - | \
-    sqlcmd -I -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ROOT_USER}" -P "${SRCDB_ROOT_PW}" -C $sql_cli_batch_mode "$@"
-  else
-    sqlcmd -I -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ROOT_USER}" -P "${SRCDB_ROOT_PW}" -C $sql_cli_batch_mode "$@"
-  fi
-}
 
 # wait for db to be up
 ping_sql_cli() {
@@ -398,25 +325,6 @@ jdbc_root_cli() {
   fi
 }
 
-# setup 2GB RAM
-set_sqlserver_ram() {
-  local DBX_USERNAME=${1}
-  local MAX_SQLSERVER_RAM=${MAX_SQLSERVER_RAM:-1024}
-  sql_root_cli <<EOF
-sp_configure 'show advanced options', 1
-GO
-RECONFIGURE;
-GO
-sp_configure 'max server memory', ${MAX_SQLSERVER_RAM};
-GO
-RECONFIGURE;
-GO  
-EOF
-
-  # setup tmux
-  send_command_tmux_window "$DBX_USERNAME" "sqluser" "/opt/mssql-tools18/bin/sqlcmd -I -d $SRCDB_DB -S $SRCDB_HOST,$SRCDB_PORT -U ${SRCDB_ARC_USER} -P ${SRCDB_ARC_PW} -C"
-  send_command_tmux_window "$DBX_USERNAME" "sqlroot" "/opt/mssql-tools18/bin/sqlcmd -I -S $SRCDB_HOST,$SRCDB_PORT -U ${SRCDB_ROOT_USER} -P ${SRCDB_ROOT_PW} -C"
-}
 
 jdbc_cli() {
   if [ -z "$(command -v jsqsh)" ]; then export PATH=/opt/stage/bin/jsqsh-dist-3.0-SNAPSHOT/bin$:$PATH; fi
@@ -454,6 +362,7 @@ port_db() {
     arcion_version
 
     # default user, pass, db
+    export SRCDB_GRP=postgresql
     export SRCDB_ARC_USER=${SRCDB_ARC_USER:-arcsrc}
     export SRCDB_ARC_PW=${SRCDB_ARC_PW:-Passw0rd}
     export SRCDB_DB=${SRCDB_DB:-${SRCDB_ARC_USER}}
@@ -472,42 +381,31 @@ port_db() {
     export fq_table_name=YCSBSPARSE
 
     # database dependent 
-    local port=${1:-1433}
+    local port=${1:-5432}
 
     # jdbc params for ycsb and jsqsh
-    if [ -n "$(netstat -an | grep -i listen | grep 1433)" ]; then
+    if [ -n "$(netstat -an | grep -i listen | grep ${port})" ]; then
       export SRCDB_PORT=${port}
     elif [ -n "$(command -v podman)" ]; then
       export SRCDB_PORT=$(podman port --all | grep "${port}/tcp" | head -n 1 | cut -d ":" -f 2)
     fi
     
     if [ -z "$SRCDB_PORT" ]; then
-      echo "Error: SQL Server is not running." >&2; return 1
+      echo "Error: database is not running." >&2; return 1
     fi
 
-    export SRCDB_HOST=127.0.0.1
-    export SRCDB_YCSB_DRIVER="jdbc"
-    export SRCDB_JSQSH_DRIVER="mssql2k5"
-    export SRCDB_JDBC_DRIVER="com.microsoft.sqlserver.jdbc.SQLServerDriver"
-    # NOTE: YCSB bug https://github.com/brianfrankcooper/YCSB/issues/1458
-    # USE arcion fork otherwise cannot use ;databaseName=${DSTDB_ARC_USER}
-    export SRCDB_JDBC_URL="jdbc:sqlserver://${SRCDB_HOST}:${SRCDB_PORT};database=${SRCDB_USER_CHANGE};encrypt=false;useBulkCopyForBatchInsert=true;"   
-    export SRCDB_JDBC_URL_BENCHBASE="jdbc:sqlserver://${SRCDB_HOST}:${SRCDB_PORT};database=${SRCDB_USER_CHANGE};encrypt=false;useBulkCopyForBatchInsert=true"   
-    export SRCDB_JDBC_NO_REWRITE="s/useBulkCopyForBatchInsert=true/useBulkCopyForBatchInsert=false/g"
-    export SRCDB_JDBC_REWRITE="s/useBulkCopyForBatchInsert=false/useBulkCopyForBatchInsert=true/g"      
-    if [ -n "${ARCION_HOME}" ] && [ -d "${ARCION_HOME}/lib" ]; then 
-      export SRCDB_CLASSPATH="$( find ${ARCION_HOME}/lib -name mssql*jar | paste -sd :)"
-    fi
-    export JSQSH_JAVA_OPTS=""
+    set_jdbc_vars
 
     if [ ! -x jsqsh ]; then
       export PATH=/opt/stage/bin/jsqsh-dist-3.0-SNAPSHOT/bin:$PATH
       echo "PATH=/opt/stage/bin/jsqsh-dist-3.0-SNAPSHOT/bin added"
     fi
 
+    set_ycsb_classpath
+
   # setup logdir
-  export LOG_DIR=/var/tmp/${SRCDB_ARC_USER}/sqlserver/logs
-  export CFG_DIR=/var/tmp/${SRCDB_ARC_USER}/sqlserver/config
+  export LOG_DIR=/var/tmp/${SRCDB_ARC_USER}/${SRCDB_GRP}/logs
+  export CFG_DIR=/var/tmp/${SRCDB_ARC_USER}/${SRCDB_GRP}/config
   export YCSB_LOG_DIR=${LOG_DIR}/ycsb
   if [ ! -d ${LOG_DIR} ]; then mkdir -p ${LOG_DIR}; fi
   if [ ! -d ${CFG_DIR} ]; then mkdir -p ${CFG_DIR}; fi
@@ -520,7 +418,6 @@ set_ycsb_classpath() {
     cat >setenv.sh <<EOF
 #!/usr/env/bin bash
 export CLASSPATH=$SRCDB_CLASSPATH
-export JAVA_OPTS="-XX:MinRAMPercentage=${y_MinRAMPercentage:-1.0} -XX:MaxRAMPercentage=${y_MaxRAMPercentage:-1.0}"
 EOF
     popd >/dev/null
 }
@@ -528,7 +425,7 @@ EOF
 create_ycsb_table() {
     # -e echo the command
     # -n non-interactive mode 
-  heredoc_file demo/sqlserver/sql/ycsb.sql | tee -a $CFG_DIR/ycsb.sql | sql_cli
+  heredoc_file demo/${SRCDB_GRP}/sql/ycsb.sql | tee -a $CFG_DIR/ycsb.sql | sql_cli
 }
 
 dump_schema() {
@@ -614,187 +511,9 @@ EOF
 }
 
 count_ycsb_table() {
-  sql_cli <<EOF | head -n 1
-select count(*) from ${fq_table_name}
-go
+  sql_cli <<EOF
+select count(*) from ${fq_table_name};
 EOF
-# ; -m csv required for jsqsh
-
-}
-
-enable_cdc() {
-
-  rm $CFG_DIR/enable_cdc.sql 2>/dev/null
-
-  echo "enable cdc on database ${SRCDB_DB}"
-  sql_root_cli <<EOF
-    -- required for CDC
-    if not exists (select name from sys.databases where is_cdc_enabled = 1 and name in ('${SRCDB_DB}'))
-      begin
-        select 'EXEC sys.sp_cdc_enable_db;';  
-        use ${SRCDB_DB};
-        EXEC sys.sp_cdc_enable_db; 
-      end
-    else
-      select 'skip EXEC sys.sp_cdc_enable_db;';  
-EOF
-
-  # enable cdc on table ${tablename}
-  list_regular_tables | while read tablename; do
-    cat >>$CFG_DIR/enable_cdc.sql <<EOF
-      if not exists (select t.name as table_name, s.name as schema_name, t.is_tracked_by_cdc 
-        from sys.tables t
-        left join sys.schemas s on t.schema_id = s.schema_id
-        where t.name in ('$tablename') and t.is_tracked_by_cdc=1)
-        begin
-          select 'EXEC sys.sp_cdc_enable_table  @source_schema = ${SRCDB_SCHEMA:-dbo}, @source_name = $tablename,  @role_name = NULL, @supports_net_changes = 0;';
-
-          EXEC sys.sp_cdc_enable_table  
-          @source_schema = '${SRCDB_SCHEMA:-dbo}',  
-          @source_name   = '$tablename',  
-          @role_name     = NULL,  
-          @supports_net_changes = 0;
-        end
-      else
-          select 'skip EXEC sys.sp_cdc_enable_table  @source_schema = ${SRCDB_SCHEMA:-dbo}, @source_name = $tablename,  @role_name = NULL, @supports_net_changes = 0;';
-EOF
-  done
-  if [ -s $CFG_DIR/enable_cdc.sql ]; then 
-    cat $CFG_DIR/enable_cdc.sql | sql_cli
-  fi
-}
-
-disable_cdc() {
-
-  rm $CFG_DIR/disable_cdc.sql 2>/dev/null
-
-  # disable cdc on table ${tablename}
-  list_regular_tables | while read tablename; do
-    cat >>$CFG_DIR/disable_cdc.sql <<EOF   
-  if exists (select t.name as table_name, s.name as schema_name, t.is_tracked_by_cdc 
-      from sys.tables t
-      left join sys.schemas s on t.schema_id = s.schema_id
-      where t.name in ('$tablename') and t.is_tracked_by_cdc=1)
-    begin
-      select 'EXEC sys.sp_cdc_disable_table @source_schema=${SRCDB_SCHEMA:-dbo},@source_name=$tablename, @capture_instance=all;'
-      EXEC sys.sp_cdc_disable_table  
-        @source_schema = '${SRCDB_SCHEMA:-dbo}',  
-        @source_name   = '$tablename',  
-        @capture_instance = 'all'
-    end
-  else
-      select 'skip EXEC sys.sp_cdc_disable_table @source_schema=${SRCDB_SCHEMA:-dbo},@source_name=$tablename, @capture_instance=all;'
-EOF
-  done
-  if [ -s $CFG_DIR/disable_cdc.sql ]; then 
-    cat $CFG_DIR/disable_cdc.sql | sql_cli
-  fi
-
-  # disable cdc on database ${SRCDB_DB}
-  sql_root_cli <<EOF
-    if exists (select name from sys.databases where is_cdc_enabled = 1 and name in ('${SRCDB_DB}'))
-      begin
-        select 'EXEC sys.sp_cdc_disable_db;'; 
-        use ${SRCDB_DB};
-        EXEC sys.sp_cdc_disable_db;
-      end 
-    else
-      select 'skip EXEC sys.sp_cdc_disable_db;'; 
-EOF
-}
-
-enable_change_tracking() {
-  rm $CFG_DIR/enable_change_tracking.sql 2>/dev/null
-
-  echo "enable change tracking on database ${SRCDB_DB}"
-  sql_root_cli <<EOF
-  -- required for change tracking
-IF NOT EXISTS (select database_id from sys.change_tracking_databases  where database_id=DB_ID('${SRCDB_DB}'))  
-  begin
-    select 'ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = ON  (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON);';
-    ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = ON  (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON);
-  end
-else
-    select 'skip ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = ON  (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON);';
-EOF
-
-  # "enable DDL tracking"
-  cat ${PROG_DIR}/sql/change/change.sql | sql_cli
-
-  # build a list of tables to enable
-  list_regular_tables | while read tablename; do  
-cat >>$CFG_DIR/enable_change_tracking.sql <<EOF
-IF NOT EXISTS (select t.name 
-    from sys.change_tracking_tables i
-    left join sys.tables t
-    on i.object_id = t.object_id where t.name='${tablename}')  
-  begin
-    select 'ALTER TABLE ${tablename} ENABLE CHANGE_TRACKING;';
-    ALTER TABLE ${tablename} ENABLE CHANGE_TRACKING;
-  end
-else
-    select 'skip ALTER TABLE ${tablename} ENABLE CHANGE_TRACKING;';
-EOF
-  done
-  if [ -s $CFG_DIR/enable_change_tracking.sql ]; then 
-    cat $CFG_DIR/enable_change_tracking.sql | sql_cli
-  fi
-}
-
-disable_change_tracking() {
-  rm $CFG_DIR/disable_change_tracking.sql 2>/dev/null
-
-  echo "disable/drop trigger replicate_io_audit_ddl_trigger"
-  cat <<EOF | sql_cli
-IF EXISTS (select name from sys.all_sql_modules m inner join sys.triggers t on m.object_id = t.object_id where name='replicate_io_audit_ddl_trigger')
-  begin
-    select 'DISABLE TRIGGER "replicate_io_audit_ddl_trigger" ON DATABASE';
-    DISABLE TRIGGER "replicate_io_audit_ddl_trigger" ON DATABASE;
-  end
-else
-    select 'skip DISABLE TRIGGER "replicate_io_audit_ddl_trigger" ON DATABASE';
-
-
-IF EXISTS (select name from sys.all_sql_modules m inner join sys.triggers t on m.object_id = t.object_id where name='replicate_io_audit_ddl_trigger')
-  begin
-    select 'drop trigger "replicate_io_audit_ddl_trigger" on DATABASE';
-    drop trigger "replicate_io_audit_ddl_trigger" on DATABASE;
-  end
-else
-    select 'skip drop trigger "replicate_io_audit_ddl_trigger" on DATABASE';
-EOF
-
-  # disable tracking on regular_tables
-  list_regular_tables | while read tablename; do  
-cat >>$CFG_DIR/disable_change_tracking.sql <<EOF
-IF EXISTS (select t.name 
-    from sys.change_tracking_tables i
-    left join sys.tables t
-    on i.object_id = t.object_id where t.name='${tablename}')
-  begin
-    select 'ALTER TABLE ${tablename} DISABLE CHANGE_TRACKING';
-    ALTER TABLE ${tablename} DISABLE CHANGE_TRACKING;
-  end
-else
-    select 'skip ALTER TABLE ${tablename} DISABLE CHANGE_TRACKING';
-EOF
-  done
-  if [ -s $CFG_DIR/disable_change_tracking.sql ]; then 
-    cat $CFG_DIR/disable_change_tracking.sql | sql_cli
-  fi
-
-  # disable change tracking on database ${SRCDB_DB} 
-  sql_root_cli <<EOF
-  -- required for change tracking
-IF EXISTS (select database_id from sys.change_tracking_databases  where database_id=DB_ID('${SRCDB_DB}'))  
-  begin
-    select 'ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = OFF';
-    ALTER DATABASE ${SRCDB_DB} SET CHANGE_TRACKING = OFF;
-  end
-else
-  select 'change tracking on database already disabled';
-EOF
-
 }
 
 load_ycsb() {
@@ -857,36 +576,27 @@ start_ycsb() {
     if [ -z "${record_count}" ] || [ "${record_count}" = "[NULL]" ]; then echo "record_count not defined.  run list_table_counts or load data"; return 1; fi
     if [ -z "${field_count}"  ] || [ "${field_count}"  = "[NULL]" ]; then echo "field_count not defined.  run list_table_counts"; return 1; fi
 
-    # ratios of delte, update, insert
+    # ycsb parameter name of insert is actually update  
+    local deletestart=$record_start
+    # the / 1 trucates the float to int in bc
+    # note y_del_proportion 100 x the records are mark for delete.
+    local deletecount=$( bc <<< "$record_count * ${y_del_proportion:-0} * 100 / 1" )
+    local updatestart=$(( record_start + deletecount ))
+    local updatecount=$(( record_count - deletecount ))
+    local insertstart=$(( record_end + 1 )) 
+
+    # read from the env vars
+    local _y_threads=$(var_name "threads" "$tabletype")
+    local _y_target=$(var_name "target" "$tabletype")
     local _y_fieldlength=$(var_name "fieldlength" "$tabletype")
     local _y_multiupdatesize=$(var_name "multiupdatesize" "$tabletype")
     local _y_multideletesize=$(var_name "multideletesize" "$tabletype")
     local _y_multiinsertsize=$(var_name "multiinsertsize" "$tabletype")
 
-    # derive tps using multi delete, update, insert 
-    local total_proportions=$(( ${!_y_multideletesize:-1} + ${!_y_multiupdatesize:-1} + ${!_y_multiinsertsize:-1} ))
-    local y_threads=1
-    local y_tps=$(( total_proportions * y_threads ))
-    # convert to proportions
-    local y_del_proportion=$( bc <<< "scale=4; ${!_y_multideletesize:-1} / ${total_proportions}" )
-    local y_upd_proportion=$( bc <<< "scale=4; ${!_y_multiupdatesize:-1} / ${total_proportions}" )
-    local y_ins_proportion=$( bc <<< "scale=4; ${!_y_multiinsertsize:-1} / ${total_proportions}" )
-
-    # ycsb parameter name of insert is actually update  
-    local deletestart=$record_start
-    # the / 1 trucates the float to int in bc
-    # note y_del_proportion 100 x the records are mark for delete.
-    local deletecount=$( bc <<< "$record_count * ${y_del_proportion:-0} / 1" )  # /1 is to get integer
-    local updatestart=$(( record_start + deletecount ))
-    local updatecount=$(( record_count - deletecount ))
-    local insertstart=$(( record_end + 1 )) 
-
-    [ -n "$YCSB_DEBUG" ] && echo "table_name=$table_name tabletype=$tabletype record_count=$record_count field_count=$field_count y_threads=${y_threads} y_tps=${y_tps} _y_fieldlength=${!_y_fieldlength}"
+    [ -n "$YCSB_DEBUG" ] && echo "table_name=$table_name tabletype=$tabletype record_count=$record_count field_count=$field_count _y_threads=${!_y_threads} _y_target=${!_y_target} _y_fieldlength=${!_y_fieldlength}"
 
     # run
     # JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-* -maxdepth 0 ) \
-    CLASSPATH=$SRCDB_CLASSPATH \
-    JAVA_OPTS="-XX:MinRAMPercentage=${y_MinRAMPercentage:-1.0} -XX:MaxRAMPercentage=${y_MaxRAMPercentage:-1.0}" \
     bin/ycsb.sh run jdbc -s -P workloads/workloada -p table=${table_name} \
     -p db.driver=$SRCDB_JDBC_DRIVER \
     -p db.url=$SRCDB_JDBC_URL \
@@ -896,7 +606,7 @@ start_ycsb() {
     -p jdbc.autocommit=true \
     -p jdbc.fetchsize=10 \
     -p db.batchsize=1000 \
-    -p operationcount=1000000000 \
+    -p operationcount=10000000 \
     -p jdbc.ycsbkeyprefix=false \
     -p insertorder=ordered \
     -p readproportion=0 \
@@ -909,14 +619,13 @@ start_ycsb() {
     -p insertproportion=${y_ins_proportion:-0} \
     -p recordcount=${insertstart} \
     -p fieldcount=${field_count:-10} \
-    -p fieldlength=${!_y_fieldlength:-100} \
+    -p fieldlength=${y_fieldlength:-100} \
     -p jdbc.prependtimestamp=true \
-    -p dataintegrity=false \
     -p jdbc.multiupdatesize=${!_y_multiupdatesize:-1} \
     -p jdbc.multideletesize=${!_y_multideletesize:-1} \
     -p jdbc.multiinsertsize=${!_y_multiinsertsize:-1} \
-    -threads ${y_threads:-1} \
-    -target ${y_tps:-1} "${@}" >$YCSB_LOG_DIR/ycsb.$table_name.log 2>&1 &
+    -threads ${!_y_threads:-1} \
+    -target ${!_y_target:-1} "${@}" >$YCSB_LOG_DIR/ycsb.$table_name.log 2>&1 &
     
     done
 
@@ -937,9 +646,9 @@ wait_log() {
   LOG_WAIT_SEC=1
   # -f is file exists
   # -s is empty
-  while [ ! -f ${LOGFILE} ] && [ ! -s ${LOGFILE} ]; do 
+  while [ ! -f "${LOGFILE}" ] && [ ! -s "${LOGFILE}" ]; do 
     sleep ${LOG_WAIT_SEC}
-    echo waiting for ${LOGFILE}
+    echo "waiting for ${LOGFILE}"
   done
 }
 
@@ -1138,9 +847,9 @@ show_arcion_trace() {
 
 
 # Parameters
-#   $1=time interval
+#   YCSB_TARGET=${1:-0}
+#   SVC_NAME=${2:-cdb_svc}
 restart_ycsb() {
-  local time_interval_sec=${1:-60}
   while [ 1 ]; do
       wait_log ${YCSB_LOG_DIR}/ycsb.run.tps1.$$
       tail -f ${YCSB_LOG_DIR}/ycsb.run.tps1.$$ | awk '/^Error in processing update to table: usertablejava.sql.SQLException: Closed Statement/ {print "Error"; exit 1} {print $0}'
@@ -1160,19 +869,12 @@ restart_ycsb() {
       else
           break
       fi 
-      sleep ${time_interval_sec}
-      kill_ycsb
   done
-}
-
-# restart ycsb at periodic basis
-watchdog_ycsb() {
-  restart_ycsb &
 }
 
 status_database() {
 
-cat <<EOF | jdbc_root_cli
+cat <<EOF | jdbc_root_cli "$@"
 
 -- show catalog
 select name, suser_sname(owner_sid) "owner_name", is_cdc_enabled, is_change_feed_enabled, is_published, is_encrypted from sys.databases
@@ -1207,4 +909,4 @@ EOF
 }
 
 
-port_db
+port_db "$@"
