@@ -520,7 +520,7 @@ set_ycsb_classpath() {
     cat >setenv.sh <<EOF
 #!/usr/env/bin bash
 export CLASSPATH=$SRCDB_CLASSPATH
-export JAVA_OPTS="-XX:MinRAMPercentage=${MinRAMPercentage:-1.0} -XX:MaxRAMPercentage=${MaxRAMPercentage:-1.0}"
+export JAVA_OPTS="-XX:MinRAMPercentage=${y_MinRAMPercentage:-1.0} -XX:MaxRAMPercentage=${y_MaxRAMPercentage:-1.0}"
 EOF
     popd >/dev/null
 }
@@ -857,24 +857,31 @@ start_ycsb() {
     if [ -z "${record_count}" ] || [ "${record_count}" = "[NULL]" ]; then echo "record_count not defined.  run list_table_counts or load data"; return 1; fi
     if [ -z "${field_count}"  ] || [ "${field_count}"  = "[NULL]" ]; then echo "field_count not defined.  run list_table_counts"; return 1; fi
 
-    # ycsb parameter name of insert is actually update  
-    local deletestart=$record_start
-    # the / 1 trucates the float to int in bc
-    # note y_del_proportion 100 x the records are mark for delete.
-    local deletecount=$( bc <<< "$record_count * ${y_del_proportion:-0} * 100 / 1" )
-    local updatestart=$(( record_start + deletecount ))
-    local updatecount=$(( record_count - deletecount ))
-    local insertstart=$(( record_end + 1 )) 
-
-    # read from the env vars
-    local _y_threads=$(var_name "threads" "$tabletype")
-    local _y_target=$(var_name "target" "$tabletype")
+    # ratios of delte, update, insert
     local _y_fieldlength=$(var_name "fieldlength" "$tabletype")
     local _y_multiupdatesize=$(var_name "multiupdatesize" "$tabletype")
     local _y_multideletesize=$(var_name "multideletesize" "$tabletype")
     local _y_multiinsertsize=$(var_name "multiinsertsize" "$tabletype")
 
-    [ -n "$YCSB_DEBUG" ] && echo "table_name=$table_name tabletype=$tabletype record_count=$record_count field_count=$field_count _y_threads=${!_y_threads} _y_target=${!_y_target} _y_fieldlength=${!_y_fieldlength}"
+    # derive tps using multi delete, update, insert 
+    local total_proportions=$(( ${!_y_multideletesize:-1} + ${!_y_multiupdatesize:-1} + ${!_y_multiinsertsize:-1} ))
+    local y_threads=1
+    local y_tps=$(( total_proportions * y_threads ))
+    # convert to proportions
+    local y_del_proportion=$( bc <<< "scale=4; ${!_y_multideletesize:-1} / ${total_proportions}" )
+    local y_upd_proportion=$( bc <<< "scale=4; ${!_y_multiupdatesize:-1} / ${total_proportions}" )
+    local y_ins_proportion=$( bc <<< "scale=4; ${!_y_multiinsertsize:-1} / ${total_proportions}" )
+
+    # ycsb parameter name of insert is actually update  
+    local deletestart=$record_start
+    # the / 1 trucates the float to int in bc
+    # note y_del_proportion 100 x the records are mark for delete.
+    local deletecount=$( bc <<< "$record_count * ${y_del_proportion:-0} / 1" )  # /1 is to get integer
+    local updatestart=$(( record_start + deletecount ))
+    local updatecount=$(( record_count - deletecount ))
+    local insertstart=$(( record_end + 1 )) 
+
+    [ -n "$YCSB_DEBUG" ] && echo "table_name=$table_name tabletype=$tabletype record_count=$record_count field_count=$field_count y_threads=${y_threads} y_tps=${y_tps} _y_fieldlength=${!_y_fieldlength}"
 
     # run
     # JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-* -maxdepth 0 ) \
@@ -902,14 +909,14 @@ start_ycsb() {
     -p insertproportion=${y_ins_proportion:-0} \
     -p recordcount=${insertstart} \
     -p fieldcount=${field_count:-10} \
-    -p fieldlength=${y_fieldlength:-100} \
+    -p fieldlength=${!_y_fieldlength:-100} \
     -p jdbc.prependtimestamp=true \
     -p dataintegrity=false \
     -p jdbc.multiupdatesize=${!_y_multiupdatesize:-1} \
     -p jdbc.multideletesize=${!_y_multideletesize:-1} \
     -p jdbc.multiinsertsize=${!_y_multiinsertsize:-1} \
-    -threads ${!_y_threads:-1} \
-    -target ${!_y_target:-1} "${@}" >$YCSB_LOG_DIR/ycsb.$table_name.log 2>&1 &
+    -threads ${y_threads:-1} \
+    -target ${y_tps:-1} "${@}" >$YCSB_LOG_DIR/ycsb.$table_name.log 2>&1 &
     
     done
 
