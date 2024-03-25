@@ -401,12 +401,13 @@ jdbc_root_cli() {
 # setup 2GB RAM
 set_sqlserver_ram() {
   local DBX_USERNAME=${1}
-  sql_root_cli <<'EOF'
+  local MAX_SQLSERVER_RAM=${MAX_SQLSERVER_RAM:-1024}
+  sql_root_cli <<EOF
 sp_configure 'show advanced options', 1
 GO
 RECONFIGURE;
 GO
-sp_configure 'max server memory', 1024;
+sp_configure 'max server memory', ${MAX_SQLSERVER_RAM};
 GO
 RECONFIGURE;
 GO  
@@ -504,8 +505,6 @@ port_db() {
       echo "PATH=/opt/stage/bin/jsqsh-dist-3.0-SNAPSHOT/bin added"
     fi
 
-    set_ycsb_classpath
-
   # setup logdir
   export LOG_DIR=/var/tmp/${SRCDB_ARC_USER}/sqlserver/logs
   export CFG_DIR=/var/tmp/${SRCDB_ARC_USER}/sqlserver/config
@@ -521,6 +520,7 @@ set_ycsb_classpath() {
     cat >setenv.sh <<EOF
 #!/usr/env/bin bash
 export CLASSPATH=$SRCDB_CLASSPATH
+export JAVA_OPTS="-XX:MinRAMPercentage=${MinRAMPercentage:-1.0} -XX:MaxRAMPercentage=${MaxRAMPercentage:-1.0}"
 EOF
     popd >/dev/null
 }
@@ -878,6 +878,8 @@ start_ycsb() {
 
     # run
     # JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-* -maxdepth 0 ) \
+    CLASSPATH=$SRCDB_CLASSPATH \
+    JAVA_OPTS="-XX:MinRAMPercentage=${y_MinRAMPercentage:-1.0} -XX:MaxRAMPercentage=${y_MaxRAMPercentage:-1.0}" \
     bin/ycsb.sh run jdbc -s -P workloads/workloada -p table=${table_name} \
     -p db.driver=$SRCDB_JDBC_DRIVER \
     -p db.url=$SRCDB_JDBC_URL \
