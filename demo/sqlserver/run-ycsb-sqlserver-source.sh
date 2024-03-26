@@ -882,6 +882,16 @@ start_ycsb() {
     local updatecount=$(( record_count - deletecount ))
     local insertstart=$(( record_end + 1 )) 
 
+    # data type
+    local y_dataintegrity="${y_dataintegrity:-false}"
+    local y_y_prependtimestamp="true"
+    if [ -n "${y_data_type}" ]; then 
+      if [ "${y_data_type}" = "char and num" ]; then
+        local y_dataintegrity=true
+        local y_prependtimestamp=false
+      fi
+    fi
+
     [ -n "$YCSB_DEBUG" ] && echo "table_name=$table_name tabletype=$tabletype record_count=$record_count field_count=$field_count y_threads=${y_threads} y_tps=${y_tps} _y_fieldlength=${!_y_fieldlength}"
 
     # run
@@ -911,8 +921,8 @@ start_ycsb() {
     -p recordcount=${insertstart} \
     -p fieldcount=${field_count:-10} \
     -p fieldlength=${!_y_fieldlength:-100} \
-    -p jdbc.prependtimestamp=true \
-    -p dataintegrity=false \
+    -p jdbc.prependtimestamp=${y_prependtimestamp} \
+    -p dataintegrity=${y_dataintegrity} \
     -p jdbc.multiupdatesize=${!_y_multiupdatesize:-1} \
     -p jdbc.multideletesize=${!_y_multideletesize:-1} \
     -p jdbc.multiinsertsize=${!_y_multiinsertsize:-1} \
