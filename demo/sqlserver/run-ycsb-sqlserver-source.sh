@@ -862,10 +862,11 @@ start_ycsb() {
     local _y_multiupdatesize=$(var_name "multiupdatesize" "$tabletype")
     local _y_multideletesize=$(var_name "multideletesize" "$tabletype")
     local _y_multiinsertsize=$(var_name "multiinsertsize" "$tabletype")
+    local _y_threads=$(var_name "threads" "$tabletype")
 
     # derive tps using multi delete, update, insert 
     local total_proportions=$(( ${!_y_multideletesize:-1} + ${!_y_multiupdatesize:-1} + ${!_y_multiinsertsize:-1} ))
-    local y_threads=1
+    local y_threads=${!_y_threads:-1}
     local y_tps=$(( total_proportions * y_threads ))
     # convert to proportions
     local y_del_proportion=$( bc <<< "scale=4; ${!_y_multideletesize:-1} / ${total_proportions}" )
