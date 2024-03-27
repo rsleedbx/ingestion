@@ -8,7 +8,7 @@ if [ ! -d "$ARCION_BASEDIR" ]; then
     sudo mkdir -p $ARCION_BASEDIR && sudo chown "${LOGNAME}" $ARCION_BASEDIR
 fi
 
-ARCION_DOWNLOAD_URL=${ARCION_DOWNLOAD_URL:-https://arcion-releases.s3.us-west-1.amazonaws.com/general/replicant/replicant-cli-24.01.25.7.zip}
+ARCION_DOWNLOAD_URL=${ARCION_DOWNLOAD_URL:-https://arcion-releases.s3.us-west-1.amazonaws.com/general/replicant/replicant-cli-24.01.25.20.zip}
 ARCION_DIRNAME=$( basename $ARCION_DOWNLOAD_URL .zip  )
 ARCION_HOME="${ARCION_BASEDIR}/${ARCION_DIRNAME}"
 
