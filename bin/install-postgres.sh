@@ -4,13 +4,14 @@ LOGNAME=$(logname 2>/dev/null)
 LOGNAME=${LOGNAME:-root}
 
 start_pg() {
-    local OS_TYPE=${1:-${OS_TYPE:-$(uname -o)}}
+    local OS_TYPE=${1:-${OS_TYPE:-$(uname -o |  tr '[:upper:]' '[:lower:]' )}}
     case "${OS_TYPE,,}" in
     darwin)
         pg_ctl restart --pgdata=/opt/homebrew/var/postgresql@14 --options "-c wal_level=logical -c max_replication_slots=10 -c max_connections=300 -c shared_buffers=80MB -c max_wal_size=3GB"
         ;;
-    linux)
-        sudo pg_ctlcluster $(dpkg-query --showformat='${Version}' --show postgresql | cut -d+ -f1) main restart --options "-c wal_level=logical -c max_replication_slots=10 -c max_connections=300 -c shared_buffers=80MB -c max_wal_size=3GB"
+    gnu/linux)
+        pgver=$(dpkg-query --showformat='${Version}' --show postgresql | cut -d+ -f1)
+        sudo pg_ctlcluster $pgver main restart --options "-c wal_level=logical -c max_replication_slots=10 -c max_connections=300 -c shared_buffers=80MB -c max_wal_size=3GB"
         ;;
     *)
         echo "not supported"
@@ -19,13 +20,14 @@ start_pg() {
 }
 
 stop_pg() {
-    local OS_TYPE=${1:-${OS_TYPE:-$(uname -o)}}
+    local OS_TYPE=${1:-${OS_TYPE:-$(uname -o |  tr '[:upper:]' '[:lower:]' )}}
     case "${OS_TYPE,,}" in
     darwin)
         pg_ctl stop --pgdata=/opt/homebrew/var/postgresql@14 
         ;;
-    linux)
-        sudo pg_ctlcluster stop 
+    gnu/linux)
+        pgver=$(dpkg-query --showformat='${Version}' --show postgresql | cut -d+ -f1)
+        sudo pg_ctlcluster ${pgver} main stop 
         ;;
     *)
         echo "not supported"
@@ -34,27 +36,32 @@ stop_pg() {
 }
 
 install_pg() {
-    local OS_TYPE=${1:-${OS_TYPE:-$(uname -o)}}
+    local OS_TYPE=${1:-${OS_TYPE:-$(uname -o |  tr '[:upper:]' '[:lower:]' )}}
     case "${OS_TYPE,,}" in
     darwin)
         brew list postgresql@14 || brew install postgresql@14
         brew list wal2json || brew install wal2json 
         createuser --superuser postgres
         ;;
-    linux)
+    gnu/linux)
         # install pg with wal2json plugin
         [ -z "$(dpkg -l postgresql 2>/dev/null)" ] && sudo apt-get -y update && sudo apt-get -y install postgresql 
 
         sudo apt-get -y install postgresql-$(dpkg-query --showformat='${Version}' --show postgresql | cut -d+ -f1)-wal2json postgresql-contrib dialog
+        # allow -U pgroot login 
+        sudo -u postgres createuser -s -i -d -r -l -w pgroot
+        sudo -u postgres psql -c "create database pgroot;"
+        sudo -u postgres psql -c "alter database pgroot owner to pgroot;"
+        sudo -u postgres psql -c "ALTER ROLE pgroot WITH PASSWORD 'Passw0rd';"
         ;;
     *)
-        echo "not supported"
+        echo "${OS_TYPE,,} not supported"
         ;;
     esac
 }
 
-sql_cli() {
-    local OS_TYPE=${1:-${OS_TYPE:-$(uname -o)}}
+pg_cli() {
+    local OS_TYPE=${1:-${OS_TYPE:-$(uname -o |  tr '[:upper:]' '[:lower:]' )}}
     local SRC_DB=${SRC_DB:-${LOGNAME:-arcsrc}}
     local SRCDB_HOST=${SRCDB_HOST:-localhost}
     local SRCDB_PORT=${SRCDB_PORT:-5432}
@@ -70,20 +77,21 @@ sql_cli() {
     fi
 }
 
-sql_root_cli() {
-    local OS_TYPE=${1:-${OS_TYPE:-$(uname -o)}}
-    local SRC_DB=${SRC_DB:-${LOGNAME:-arcsrc}}
+pg_root_cli() {
+    local OS_TYPE=${1:-${OS_TYPE:-$(uname -o |  tr '[:upper:]' '[:lower:]' )}}
+    local SRC_ROOT_DB=${SRC_ROOT_DB:-pgroot}
     local SRCDB_HOST=${SRCDB_HOST:-localhost}
     local SRCDB_PORT=${SRCDB_PORT:-5432}
-    local SRCDB_ROOT_USER=${SRCDB_ROOT_USER:-postgres}
-    local SRCDB_ROOT_PW=${SRCDB_ARC_PW:-Passw0rd}
+    local SRCDB_ROOT_USER=${SRCDB_ROOT_USER:-pgroot}
+    local SRCDB_ROOT_PW=${SRCDB_ROOT_PW:-"Passw0rd"}
     # when stdin is redirected
+    export PGPASSWORD=${SRCDB_ROOT_PW}
     if [ ! -t 0 ]; then
         local pg_cli_batch_mode="--csv --tuples-only"
         cat <(printf "\n") - | \
-        psql -d "$SRCDB_DB" -h "$SRCDB_HOST" -p "$SRCDB_PORT" -U "${SRCDB_ROOT_USER}" $pg_cli_batch_mode "$@"
+        psql -d "$SRC_ROOT_DB" -h "$SRCDB_HOST" -p "$SRCDB_PORT" -U "${SRCDB_ROOT_USER}" $pg_cli_batch_mode "$@"
     else
-        psql -d "$SRCDB_DB" -h "$SRCDB_HOST" -p "$SRCDB_PORT" -U "${SRCDB_ROOT_USER}" $pg_cli_batch_mode "$@"
+        psql -d "$SRC_ROOT_DB" -h "$SRCDB_HOST" -p "$SRCDB_PORT" -U "${SRCDB_ROOT_USER}" $pg_cli_batch_mode "$@"
     fi
 }
 
@@ -114,8 +122,8 @@ CREATE TABLE IF NOT EXISTS "REPLICATE_IO_CDC_HEARTBEAT"(
 );  
 EOF
 
-  cat $CFG_DIR/create_user.sql | sql_root_cli
-  cat $CFG_DIR/create_w2j.sql | sql_root_cli
+  cat $CFG_DIR/create_user.sql | pg_root_cli
+  cat $CFG_DIR/create_w2j.sql | pg_root_cli
 }
 
 drop_user() {
@@ -125,7 +133,7 @@ drop_user() {
 drop database "${SRCDB_ARC_USER}";
 drop role "${SRCDB_ARC_USER}";
 EOF
-    cat $CFG_DIR/drop_user.sql | sql_root_cli
+    cat $CFG_DIR/drop_user.sql | pg_root_cli
 }
 
 
@@ -142,6 +150,6 @@ bulk_load() {
     if [ ! -f "$datafile" ]; then echo "\$datafile=$datafile does not exist"; return 1; fi
 
     set -x
-    cat $datafile | sql_cli -c "copy YCSB${y_tabletype^^}${TABLE_INST_NAME} ($fieldnames) from STDIN with (FORMAT csv);" | tee ${LOG_DIR}/03_${y_tabletype}table.log
+    cat $datafile | pg_cli -c "copy YCSB${y_tabletype^^}${TABLE_INST_NAME} ($fieldnames) from STDIN with (FORMAT csv);" | tee ${LOG_DIR}/03_${y_tabletype}table.log
     set +x
 }
