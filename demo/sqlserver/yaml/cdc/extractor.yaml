@@ -3,8 +3,10 @@ snapshot:
   _traceDBTasks: true
   fetch-user-roles: false
   _fetch-exact-row-count: false    
-    
+  extractionMethod: ${EXTRACTION_METHOD:-QUERY} # QUERY | BCP  
   min-job-size-rows: 100_000 # default 1_000_000 is too large for purposes demo
+  ddl-replication:
+    enable: true
 
 realtime:
   threads: ${SRCDB_REALTIME_THREADS}
