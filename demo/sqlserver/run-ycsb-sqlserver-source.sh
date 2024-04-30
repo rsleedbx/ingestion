@@ -175,6 +175,8 @@ load_dense_data() {
     local y_fieldlength=$( numfmt --from=auto "$y_fieldlength" )
     local y_recordcount=$( numfmt --from=auto "$y_recordcount" )
     local progress_interval_rows=$(( y_recordcount / 10 ))
+    local table_name="YCSB${y_tabletype^^}${TABLE_INST_NAME}"
+
 
     echo "Starting type=${y_tabletype} inst=$TABLE_INST" 
 
@@ -184,13 +186,129 @@ load_dense_data() {
     local record_end=0
     local record_count=0
     local field_count=10
-    table_stat_array=$(cat $CFG_DIR/list_table_counts.csv 2>/dev/null | grep "^YCSB${y_tabletype^^}${TABLE_INST_NAME},")
+    table_stat_array=$(cat $CFG_DIR/list_table_counts.csv 2>/dev/null | grep "^${table_name},")
     convert_table_stat_to_var "$table_stat_array"
 
     # create table if not already exists
     if [ -z "${table_stat_array}" ]; then
       heredoc_file ${PROG_DIR}/sql/03_usertable.sql > ${CFG_DIR}/03_ycsb${y_tabletype}.sql 
       sql_cli < ${CFG_DIR}/03_ycsb${y_tabletype}.sql
+      echo "${CFG_DIR}/03_ycsb${y_tabletype}.sql" 
+      table_field_cnt=${y_fieldcount}
+    else
+      echo "skip table create"
+    fi
+
+    table_field_cnt=${table_field_cnt:-${field_count}}
+    if [ -z "$table_field_cnt" ]; then 
+      echo "error: table schema missing to determine the field count. run list_table_counts" >&2
+      return 1;
+    fi
+
+    # table did not exist or 
+    if [[ -z "${table_stat_array}" || ${record_count} == 0 ]] || 
+       [[ -n "${table_stat_array}" && ${y_recordcount} -gt ${record_count} && ${y_fieldcount} -eq ${table_field_cnt} ]]; then
+      
+      # start from the end of existing records (assume YCSB_KEY started at 0)
+      y_insertstart=$record_count
+      echo "inserting insertstart=$y_insertstart insert ends at ycsb_key=$(( $y_recordcount - 1 ))"
+
+      # prepare bulk loader
+      # https://learn.microsoft.com/en-us/sql/relational-databases/import-export/use-a-format-file-to-skip-a-table-column-sql-server?view=sql-server-ver16
+      echo "y_fieldcount=$y_fieldcount y_fillstart=$y_fillstart y_fillend=$y_fillend"
+      y_fieldcount=${y_fieldcount} ${PROG_DIR}/sql/03_usertable.fmt.py > ${LOG_DIR}/03_${y_tabletype}table.fmt
+      echo "${LOG_DIR}/03_${y_tabletype}table.fmt" 
+
+      datafile=$(mktemp -p $LOG_DIR)
+
+      # prepare data file
+      # the following env vars are used
+      # local y_fillstart=$( numfmt --from=auto ${y_fillstart:-1} )
+      # local y_fillend=$( numfmt --from=auto ${y_fillend:-3} )
+      # local y_fieldcount=$( numfmt --from=auto ${y_fieldcount:-10} )
+      # local y_fieldlength=$( numfmt --from=auto ${y_fieldlength:-5} )
+      # local y_insertstart=$( numfmt --from=auto ${y_insertstart:-0} )
+      # local y_recordcount=$( numfmt --from=auto ${y_recordcount:-10} )
+
+      local chunk_size=1000000  # 1M
+      local chunk_insertstart=${y_insertstart}
+      local current_chunk_size=$(( y_recordcount - chunk_insertstart ))
+      echo "$chunk_insertstart < $y_recordcount"
+      while (( chunk_insertstart < y_recordcount )); do
+        echo "current_chunk_size=$current_chunk_size ($y_recordcount - $chunk_insertstart)"
+        if (( current_chunk_size > chunk_size )); then 
+          chunk_recordcount=$(( chunk_insertstart + chunk_size )) 
+        else 
+          chunk_recordcount=$(( chunk_insertstart + current_chunk_size )) 
+        fi
+        echo "starting chunk $chunk_insertstart to $chunk_recordcount"
+        make_ycsb_dense_data $datafile ${TABLE_INST}
+        echo "data file to be purged ${datafile}"
+        
+        # run the bulk loaders
+        # batch of 1M
+        # -u trust certifcate
+	set -x
+	bcp "YCSB${y_tabletype^^}${TABLE_INST_NAME}" in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d "${SRCDB_ARC_USER}" -f "${LOG_DIR}/03_${y_tabletype}table.fmt" -b "${progress_interval_rows}" | tee ${LOG_DIR}/03_${y_tabletype}table.log
+        set +x
+        echo "bcp log at ${LOG_DIR}/03_${y_tabletype}table.log"
+
+        # delete datafile
+        rm $datafile
+        # move to the next chunk
+        chunk_insertstart=$(( chunk_insertstart + chunk_size ))
+        current_chunk_size=$(( y_recordcount - chunk_insertstart ))
+      done
+      echo "Finished dense table $TABLE_INST" 
+    else
+      echo "skip load need existing count ${y_recordcount} -gt ${record_count} && field ${y_fieldcount} -eq ${table_field_cnt} "
+    fi
+}
+
+load_dense_data2() {
+  local TABLE_INST=${1:-${TABLE_INST:-1}}
+
+  if [ -z "$(command -v bcp)" ]; then export PATH=/opt/mssql-tools18/bin:$PATH; fi
+
+    local TABLE_INST_NAME=$(sf_to_name $TABLE_INST)
+    local y_insertstart
+    local table_field_cnt
+
+    local y_fieldcount=$( numfmt --from=auto  "$y_fieldcount" )
+    local y_fillstart=$( numfmt --from=auto "$y_fillstart" )
+    local y_fillend=$( numfmt --from=auto "$y_fillend" )
+    local y_fieldlength=$( numfmt --from=auto "$y_fieldlength" )
+    local y_recordcount=$( numfmt --from=auto "$y_recordcount" )
+    local progress_interval_rows=$(( y_recordcount / 10 ))
+    local table_name="YCSB${y_tabletype^^}${TABLE_INST_NAME}"
+
+    echo "Starting type=${y_tabletype} inst=$TABLE_INST" 
+
+    # return table_name, record_count, field_count, 
+    local table_name
+    local record_start=0
+    local record_end=0
+    local record_count=0
+    local field_count=10
+    table_stat_array=$(cat $CFG_DIR/list_table_counts.csv 2>/dev/null | grep "^${table_name},")
+    convert_table_stat_to_var "$table_stat_array"
+
+    # create table if not already exists
+    if [ -z "${table_stat_array}" ]; then
+      heredoc_file ${PROG_DIR}/sql/03_usertable.sql > ${CFG_DIR}/03_ycsb${y_tabletype}.sql 
+
+      pushd /opt/stage/ycsb/ycsb-jdbc-binding-0.18.0-SNAPSHOT/ >/dev/null
+      JAVA_OPTS="-XX:MinRAMPercentage=${y_MinRAMPercentage:-1.0} -XX:MaxRAMPercentage=${y_MaxRAMPercentage:-1.0}" \
+      java -cp $(find lib -type f | paste -sd:) site.ycsb.db.JdbcDBCreateTable -n "${table_name}" \
+        -p db.driver=$SRCDB_JDBC_DRIVER \
+        -p db.url=$SRCDB_JDBC_URL \
+        -p db.user="$SRCDB_ARC_USER" \
+        -p db.passwd="$SRCDB_ARC_PW" \
+        -p jdbc.ycsbkeyprefix=false \
+        -p jdbc.create_table_ddl="$(<${CFG_DIR}/03_ycsb${y_tabletype}.sql)"
+      popd > /dev/null
+      # sql_cli < ${CFG_DIR}/03_ycsb${y_tabletype}.sql
+
       echo "${CFG_DIR}/03_ycsb${y_tabletype}.sql" 
       table_field_cnt=${y_fieldcount}
     else
@@ -966,14 +1084,19 @@ set_arcion_java_home() {
 arcion_version_from_url() {
   # remove leading names and trailing .zip
   export ARCION_DOWNLOAD_URL=${ARCION_DOWNLOAD_URL:-https://arcion-releases.s3.us-west-1.amazonaws.com/general/replicant/replicant-cli-24.01.25.7.zip}
-  export ARCION_DIRNAME=$( basename $ARCION_DOWNLOAD_URL .zip  )
+  export ARCION_DIRNAME=$( basename $ARCION_DOWNLOAD_URL .zip  )    
   export ARCION_HOME="${ARCION_BASEDIR}/${ARCION_DIRNAME}"
   export ARCION_BIN="$( find ${ARCION_HOME} -maxdepth 4 -name replicate -o -name replicant )" 
 }
 
-# set JAVA_HOME ARCION_HOME ARCION_BIN
+# set ARCION_HOME ARCION_BIN
 replicant_or_replicate() {
-  if [ -z "${ARCION_DOWNLOAD_URL}" ]; then
+  if [ -z "${ARCION_DOWNLOAD}" ]; then
+    # assume manually setup in the script
+    if [ -z "$ARCION_BIN" ]; then echo "ARCION_BIN needs to point to replicant binary"; exit 1; fi
+    if [ -z "$ARCION_HOME" ]; then echo "ARCION_HOME needs to point to arcion dir"; exit 1; fi
+    return
+  elif [ -z "${ARCION_DOWNLOAD_URL}" ]; then
     # pick the latest from downloaded
     export ARCION_BIN=${ARCION_HOME:-$( find ${ARCION_BASEDIR} -maxdepth 4 -name replicate -o -name replicant | sort -r --version-sort | head -n 1)}
   else
@@ -982,7 +1105,7 @@ replicant_or_replicate() {
   fi
 
   if [[ ( -z "$ARCION_BIN" ) || ( ! -x "$ARCION_BIN" ) ]]; then   
-    echo "$ARCION_BASEDIR does not have replicant or replicate" >&2
+    echo "$ARCION_HOME or $ARCION_BASEDIR does not have replicant or replicate" >&2
     return 1
   fi
 }
