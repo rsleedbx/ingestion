@@ -1,5 +1,5 @@
 # manual setup of ingestion gateway
-export ARCION_DOWNLOAD=""       # don't donwload.  use what is specified below
+export USE_EXISTING_ARCION=""   # don't donwload.  use what is specified below
 export ARCION_BASEDIR=/arcion   # where arcion is setup with IG
 export ARCION_DIRNAME=          # no separate subdir with IG
 export ARCION_HOME=/arcion
