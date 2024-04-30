@@ -27,6 +27,10 @@ fi
 # copy the jar and jdbc
 for inst in $(find $ARCION_BASEDIR -name "replicant" -o -name "replicate"); do
   dir="$(dirname $(dirname $inst))/lib"
+  if [ ! -d "${dir}" ]; then
+    echo "$dir not a dir.  skipping"
+    continue
+  fi
   echo "checking jar(s) in $dir for updates"
 
   # SQL Server is included
@@ -36,6 +40,18 @@ for inst in $(find $ARCION_BASEDIR -name "replicant" -o -name "replicate"); do
     cp -vu $jarfile ${dir}/.
   done
 done 
+
+# copy the jar and jdbc for ingestion gateway
+dir="/databricks/jars"
+if [ -d "${dir}" ]; then
+
+  # SQL Server is included
+  for jarfile in $(find /opt/stage/libs/ -name "DatabricksJDBC42.jar" -o -name "SparkJDBC42.jar" -name "ojdbc8.jar"); do
+    # -u update if source is newer
+    # -v show files being updated
+    cp -vu $jarfile ${dir}/.
+  done
+fi 
 
 # setup the license
 if [ ! -f $ARCION_BASEDIR/replicant.lic ]; then
