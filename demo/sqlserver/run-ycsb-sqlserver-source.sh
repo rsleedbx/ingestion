@@ -1094,7 +1094,7 @@ arcion_version_from_url() {
 
 # set ARCION_HOME ARCION_BIN
 replicant_or_replicate() {
-  if [ -z "${ARCION_DOWNLOAD}" ]; then
+  if [ -z "${DOWNLOAD_ARCION}" ]; then
     # assume manually setup in the script
     if [ -z "$ARCION_BIN" ]; then echo "ARCION_BIN needs to point to replicant binary"; exit 1; fi
     if [ -z "$ARCION_HOME" ]; then echo "ARCION_HOME needs to point to arcion dir"; exit 1; fi
