@@ -578,45 +578,48 @@ port_db() {
     export SRCDB_SCHEMA=${SRCDB_SCHEMA:-dbo}
     export SRCDB_USER_CHANGE=${SRCDB_USER_CHANGE:-${SRCDB_DB:-arcsrc}}
 
-    export SRCDB_ROOT_USER=sa
-    export SRCDB_ROOT_PW=Passw0rd
+    export SRCDB_ROOT_USER=${SRCDB_ROOT_USER:-sa}
+    export SRCDB_ROOT_PW=${SRCDB_ROOT_PW:-Passw0rd}
 
     # arcion parallelism
-    export SRCDB_SNAPSHOT_THREADS=1
-    export SRCDB_DELTA_SNAPSHOT_THREADS=1
-    export SRCDB_REALTIME_THREADS=1
+    export SRCDB_SNAPSHOT_THREADS=${SRCDB_SNAPSHOT_THREADS:-1}
+    export SRCDB_DELTA_SNAPSHOT_THREADS=${SRCDB_DELTA_SNAPSHOT_THREADS:-1}
+    export SRCDB_REALTIME_THREADS={SRCDB_REALTIME_THREADS:-1}
 
     # default YCSB table name
-    export fq_table_name=YCSBSPARSE
+    export fq_table_name=${fq_table_name:-YCSBSPARSE}
 
     # database dependent 
-    local port=${1:-1433}
+    if [ -z "$SRCDB_PORT" ]; then
+      local port=${1:-1433}
 
-    # jdbc params for ycsb and jsqsh
-    if [ -n "$(netstat -an | grep -i listen | grep 1433)" ]; then
-      export SRCDB_PORT=${port}
-    elif [ -n "$(command -v podman)" ]; then
-      export SRCDB_PORT=$(podman port --all | grep "${port}/tcp" | head -n 1 | cut -d ":" -f 2)
+      # jdbc params for ycsb and jsqsh
+      if [ -n "$(netstat -an | grep -i listen | grep 1433)" ]; then
+        export SRCDB_PORT=${port}
+      elif [ -n "$(command -v podman)" ]; then
+        export SRCDB_PORT=$(podman port --all | grep "${port}/tcp" | head -n 1 | cut -d ":" -f 2)
+      fi
     fi
     
     if [ -z "$SRCDB_PORT" ]; then
       echo "Error: SQL Server is not running." >&2; return 1
     fi
 
-    export SRCDB_HOST=127.0.0.1
-    export SRCDB_YCSB_DRIVER="jdbc"
-    export SRCDB_JSQSH_DRIVER="mssql2k5"
-    export SRCDB_JDBC_DRIVER="com.microsoft.sqlserver.jdbc.SQLServerDriver"
+    export SRCDB_HOST=${SRCDB_HOST:-127.0.0.1}
+    export SRCDB_YCSB_DRIVER=${SRCDB_YCSB_DRIVER:-jdbc}
+    export SRCDB_JSQSH_DRIVER=${SRCDB_JSQSH_DRIVER:-"mssql2k5"}
+    export SRCDB_JDBC_DRIVER=${SRCDB_JDBC_DRIVER:-"com.microsoft.sqlserver.jdbc.SQLServerDriver"}
     # NOTE: YCSB bug https://github.com/brianfrankcooper/YCSB/issues/1458
     # USE arcion fork otherwise cannot use ;databaseName=${DSTDB_ARC_USER}
-    export SRCDB_JDBC_URL="jdbc:sqlserver://${SRCDB_HOST}:${SRCDB_PORT};database=${SRCDB_USER_CHANGE};encrypt=false;useBulkCopyForBatchInsert=true;"   
-    export SRCDB_JDBC_URL_BENCHBASE="jdbc:sqlserver://${SRCDB_HOST}:${SRCDB_PORT};database=${SRCDB_USER_CHANGE};encrypt=false;useBulkCopyForBatchInsert=true"   
-    export SRCDB_JDBC_NO_REWRITE="s/useBulkCopyForBatchInsert=true/useBulkCopyForBatchInsert=false/g"
-    export SRCDB_JDBC_REWRITE="s/useBulkCopyForBatchInsert=false/useBulkCopyForBatchInsert=true/g"      
-    if [ -n "${ARCION_HOME}" ] && [ -d "${ARCION_HOME}/lib" ]; then 
-      export SRCDB_CLASSPATH="$( find ${ARCION_HOME}/lib -name mssql*jar | paste -sd :)"
+    export SRCDB_JDBC_URL=${SRCDB_JDBC_URL:-"jdbc:sqlserver://${SRCDB_HOST}:${SRCDB_PORT};database=${SRCDB_USER_CHANGE};encrypt=false;useBulkCopyForBatchInsert=true;"}   
+    export SRCDB_JDBC_URL_BENCHBASE=${SRCDB_JDBC_URL_BENCHBASE:-"jdbc:sqlserver://${SRCDB_HOST}:${SRCDB_PORT};database=${SRCDB_USER_CHANGE};encrypt=false;useBulkCopyForBatchInsert=true"}
+    export SRCDB_JDBC_NO_REWRITE=${SRCDB_JDBC_NO_REWRITE:-"s/useBulkCopyForBatchInsert=true/useBulkCopyForBatchInsert=false/g"}
+    export SRCDB_JDBC_REWRITE=${SRCDB_JDBC_REWRITE:-"s/useBulkCopyForBatchInsert=false/useBulkCopyForBatchInsert=true/g"}  
+
+    if [ -z "$SRCDB_CLASSPATH" ]; then
+        export SRCDB_CLASSPATH="$( find /opt/stage/libs -name mssql*jar | paste -sd :)"
     fi
-    export JSQSH_JAVA_OPTS=""
+    export JSQSH_JAVA_OPTS=${JSQSH_JAVA_OPTS:-""}
 
     if [ ! -x jsqsh ]; then
       export PATH=/opt/stage/bin/jsqsh-dist-3.0-SNAPSHOT/bin:$PATH
@@ -624,8 +627,8 @@ port_db() {
     fi
 
   # setup logdir
-  export LOG_DIR=/var/tmp/${SRCDB_ARC_USER}/sqlserver/logs
-  export CFG_DIR=/var/tmp/${SRCDB_ARC_USER}/sqlserver/config
+  export LOG_DIR=${LOG_DIR:-/var/tmp/${SRCDB_ARC_USER}/sqlserver/logs}
+  export CFG_DIR=${CFG_DIR:-/var/tmp/${SRCDB_ARC_USER}/sqlserver/config}
   export YCSB_LOG_DIR=${LOG_DIR}/ycsb
   if [ ! -d ${LOG_DIR} ]; then mkdir -p ${LOG_DIR}; fi
   if [ ! -d ${CFG_DIR} ]; then mkdir -p ${CFG_DIR}; fi
@@ -1160,8 +1163,8 @@ start_arcion() {
   local ARCION_CFG_DIR=$LOG_DIR/$NINE_CHAR_ID
   local ARCION_LOG_DIR=$ARCION_CFG_DIR            # cfg is the same as the LOG_DIR 
   local ARCION_NULL_DIR=$ARCION_LOG_DIR/null      # arcion creates ./*
-  local ARCION_META_DIR=$ARCION_CFG_DIR/metadata  # arcion creates ./NINE_CHAR_ID/NINE_CHAR_ID 
-  local ARCION_STATS_DIR=$LOG_DIR                 # arcion creates ./NINE_CHAR_ID/replication_statistics_history_*.CSV
+  local ARCION_META_DIR=$ARCION_LOG_DIR/metadata  # arcion creates ./NINE_CHAR_ID/NINE_CHAR_ID 
+  local ARCION_STATS_DIR=$ARCION_LOG_DIR/stats    # arcion creates ./NINE_CHAR_ID/replication_statistics_history_*.CSV
   mkdir -p $ARCION_LOG_DIR
   mkdir -p $ARCION_CFG_DIR
   mkdir -p $ARCION_META_DIR
@@ -1340,5 +1343,9 @@ EOF
 
 }
 
+if [ -n "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE" ]; then
+  echo "source ${CONFIG_FILE}"
+  source ${CONFIG_FILE}
+fi
 
 port_db
