@@ -1,0 +1,23 @@
+{
+  "encrypted" : false,
+  "streamingStorageId" : "5",
+  "producerSourceType" : "SQLSERVER",
+  "timeUnit" : "SECONDS",
+  "waitConfig" : {
+    "waitDuration" : 100000,
+    "checkInterval" : 2000,
+    "timeUnit" : "MILLISECONDS"
+  },
+  "logRetentionConfig" : {
+    "duration" : 10,
+    "timeUnit" : "MINUTES"
+  },
+  "cdcLogSegmentConfig" : {
+    "bufferSizeMb" : 5,
+    "operationCount" : 500000,
+    "transactionCount" : 50000,
+    "publishInterval" : 10,
+    "serializationFormat" : "JSON",
+    "compressionType" : "NONE"
+  }
+}

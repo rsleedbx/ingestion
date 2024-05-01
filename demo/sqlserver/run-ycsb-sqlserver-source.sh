@@ -1268,8 +1268,8 @@ start_arcion() {
 
   # storage
   local STORAGE=""
-  if [[ "${DSTDB_TYPE,,}" = 'unitycatalog' ]]; then 
-      heredoc_file ${a_yamldir}/storage.yaml >${ARCION_CFG_DIR}/storage.yaml  
+  if [[ "${DSTDB_TYPE,,}" = 'uc_volume_storage_broker' ]]; then 
+      heredoc_file ${a_yamldir}/storage.json >${ARCION_CFG_DIR}/storage.json  
       STORAGE="--streaming-storage ${ARCION_CFG_DIR}/storage.yaml"; 
   fi
 
