@@ -535,8 +535,8 @@ GO
 EOF
 
   # setup tmux
-  send_command_tmux_window "$DBX_USERNAME" "sqluser" "/opt/mssql-tools18/bin/sqlcmd -I -d $SRCDB_DB -S $SRCDB_HOST,$SRCDB_PORT -U ${SRCDB_ARC_USER} -P ${SRCDB_ARC_PW} -C"
-  send_command_tmux_window "$DBX_USERNAME" "sqlroot" "/opt/mssql-tools18/bin/sqlcmd -I -S $SRCDB_HOST,$SRCDB_PORT -U ${SRCDB_ROOT_USER} -P ${SRCDB_ROOT_PW} -C"
+  send_command_tmux_window "$DBX_USERNAME" "sqluser" "/opt/mssql-tools18/bin/sqlcmd -I -d '$SRCDB_DB' -S '$SRCDB_HOST','$SRCDB_PORT' -U '${SRCDB_ARC_USER}' -P '${SRCDB_ARC_PW}' -C"
+  send_command_tmux_window "$DBX_USERNAME" "sqlroot" "/opt/mssql-tools18/bin/sqlcmd -I -S '$SRCDB_HOST','$SRCDB_PORT' -U '${SRCDB_ROOT_USER}' -P '${SRCDB_ROOT_PW}' -C"
 }
 
 jdbc_cli() {
@@ -1268,7 +1268,7 @@ start_arcion() {
 
   # storage
   local STORAGE=""
-  if [[ "${DSTDB_TYPE,,}" = 'uc_volume_storage_broker' ]]; then 
+  if [[ "${DSTDB_TYPE,,}" = 'ucvolumestoragebroker' ]]; then 
       heredoc_file ${a_yamldir}/storage.json >${ARCION_CFG_DIR}/storage.json  
       STORAGE="--streaming-storage ${ARCION_CFG_DIR}/storage.yaml"; 
   fi
