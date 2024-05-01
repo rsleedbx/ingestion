@@ -669,7 +669,9 @@ EOF
 
 list_tables() {
   sql_cli <<EOF
-SELECT table_name, table_type FROM information_schema.tables where table_type in ('BASE TABLE','VIEW') and table_schema like '${SRCDB_SCHEMA:-%}' and table_catalog like '${SRCDB_ARC_USER:-%}' order by table_name
+SELECT concat(table_schema, '.', table_name), table_type 
+FROM information_schema.tables 
+where table_type in ('BASE TABLE') and table_schema like '${SRCDB_SCHEMA:-%}' and table_catalog like '${SRCDB_ARC_USER:-%}' order by table_name
 go
 EOF
 }
