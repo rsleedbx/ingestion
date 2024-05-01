@@ -1,0 +1,1 @@
+export SRCDB_SCHEMA=schema1

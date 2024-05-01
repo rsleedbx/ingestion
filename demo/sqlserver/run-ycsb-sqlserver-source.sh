@@ -177,11 +177,9 @@ load_dense_data() {
     local progress_interval_rows=$(( y_recordcount / 10 ))
     local table_name="YCSB${y_tabletype^^}${TABLE_INST_NAME}"
 
-
     echo "Starting type=${y_tabletype} inst=$TABLE_INST" 
 
     # return table_name, record_count, field_count, 
-    local table_name
     local record_start=0
     local record_end=0
     local record_count=0
@@ -189,6 +187,10 @@ load_dense_data() {
     table_stat_array=$(cat $CFG_DIR/list_table_counts.csv 2>/dev/null | grep "^${table_name},")
     convert_table_stat_to_var "$table_stat_array"
 
+    # table_name gets wiped out by convert_table_stat_to_var
+    table_name="YCSB${y_tabletype^^}${TABLE_INST_NAME}"
+    if [ -n "${SRCDB_SCHEMA}" ]; then table_name="${SRCDB_SCHEMA}.${table_name}"; fi
+    
     # create table if not already exists
     if [ -z "${table_stat_array}" ]; then
       heredoc_file ${PROG_DIR}/sql/03_usertable.sql > ${CFG_DIR}/03_ycsb${y_tabletype}.sql 
@@ -249,7 +251,8 @@ load_dense_data() {
         # batch of 1M
         # -u trust certifcate
 	set -x
-	bcp "YCSB${y_tabletype^^}${TABLE_INST_NAME}" in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d "${SRCDB_ARC_USER}" -f "${LOG_DIR}/03_${y_tabletype}table.fmt" -b "${progress_interval_rows}" | tee ${LOG_DIR}/03_${y_tabletype}table.log
+
+	bcp "$table_name" in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d "${SRCDB_ARC_USER}" -f "${LOG_DIR}/03_${y_tabletype}table.fmt" -b "${progress_interval_rows}" | tee ${LOG_DIR}/03_${y_tabletype}table.log
         set +x
         echo "bcp log at ${LOG_DIR}/03_${y_tabletype}table.log"
 
@@ -669,22 +672,37 @@ EOF
 
 list_tables() {
   sql_cli <<EOF
-SELECT concat(table_schema, '.', table_name), table_type 
+SELECT table_name, table_type 
 FROM information_schema.tables 
-where table_type in ('BASE TABLE') and table_schema like '${SRCDB_SCHEMA:-%}' and table_catalog like '${SRCDB_ARC_USER:-%}' order by table_name
+where 
+table_type in ('BASE TABLE') 
+and table_schema like '${SRCDB_SCHEMA:-%}' 
+and table_catalog like '${SRCDB_ARC_USER:-%}' 
+order by table_name
 go
 EOF
 }
 
 list_table_counts() {
+  rm $CFG_DIR/list_table_counts.csv 2>/dev/null
   rm $CFG_DIR/list_table_counts.sql 2>/dev/null
-  for tables in $(list_regular_tables | grep -v "^replicate" ); do
-    echo "select '$tables', min(a.ycsb_key), max(a.ycsb_key), max(b.field_count) from $tables a, (select max(ordinal_position)-1 field_count from information_schema.columns where table_name='$tables' and table_schema='${SRCDB_SCHEMA}' and table_catalog='${SRCDB_DB}') b;" >> $CFG_DIR/list_table_counts.sql  
+  for tables in $(list_ycsb_tables | grep -v "^replicate" ); do
+    if [ -n "${SRCDB_SCHEMA}" ]; then 
+      table_name="${SRCDB_SCHEMA}.${tables}" 
+    else 
+      table_name="$tables" 
+    fi
+    cmd="select a.table_name, min, max, field_count from 
+      (select '${tables}' table_name, max(ordinal_position)-1 field_count 
+      from information_schema.columns 
+      where table_name='${tables}' and table_schema='${SRCDB_SCHEMA}' and table_catalog='${SRCDB_DB}' ) a
+      ,(select '${tables}' table_name, min(ycsb_key) min, max(ycsb_key) max from ${table_name}) b"
+      echo $cmd >> $CFG_DIR/list_table_counts.sql  
   done
   if [ -f $CFG_DIR/list_table_counts.sql ]; then 
     cat $CFG_DIR/list_table_counts.sql | sql_cli > $CFG_DIR/list_table_counts.csv
   else
-    touch $CFG_DIR/list_table_counts.sql
+    touch $CFG_DIR/list_table_counts.csv
   fi
   echo "table count at $CFG_DIR/list_table_counts.csv" >&2
 }
@@ -694,11 +712,18 @@ list_table_counts() {
 #    -e replicate_io_audit_tbl_cons \
 #    -e replicate_io_audit_tbl_schema \
 #    -e REPLICATE_IO_CDC_HEARTBEAT \
+list_ycsb_tables() {
+  list_tables | \
+  awk -F ',' '{print $1}' | \
+  grep -e '^YCSB'
+}
+
 list_regular_tables() {
   list_tables | \
   awk -F ',' '{print $1}' | \
-  grep -v -e MSchange_tracking_history \
-    -e systranschemas 
+  grep -i -v -e '^replicate_' \
+    -e "^systranschemas" \
+    -e "^MSchange_tracking_history"
 }
 
 add_column_ycsb() {
@@ -842,21 +867,30 @@ else
 EOF
 
   # "enable DDL tracking"
-  cat ${PROG_DIR}/sql/change/change.sql | sql_cli
+  # cat ${PROG_DIR}/sql/change/change.sql | sql_cli
 
   # build a list of tables to enable
   list_regular_tables | while read tablename; do  
+
+    if [ -n "${SRCDB_SCHEMA}" ]; then 
+      fq_table_name="${SRCDB_SCHEMA}.${tablename}"
+    else 
+      fq_table_name="${SRCDB_SCHEMA}"
+    fi
+
 cat >>$CFG_DIR/enable_change_tracking.sql <<EOF
 IF NOT EXISTS (select t.name 
     from sys.change_tracking_tables i
     left join sys.tables t
-    on i.object_id = t.object_id where t.name='${tablename}')  
+    left join sys.schemas s on t.schema_id = s.schema_id
+    on i.object_id = t.object_id 
+    where t.name='${tablename}' and s.name='$SRCDB_SCHEMA')  
   begin
-    select 'ALTER TABLE ${tablename} ENABLE CHANGE_TRACKING;';
-    ALTER TABLE ${tablename} ENABLE CHANGE_TRACKING;
+    select 'ALTER TABLE ${fq_table_name} ENABLE CHANGE_TRACKING;';
+    ALTER TABLE ${fq_table_name} ENABLE CHANGE_TRACKING;
   end
 else
-    select 'skip ALTER TABLE ${tablename} ENABLE CHANGE_TRACKING;';
+    select 'skip ALTER TABLE ${fq_table_name} ENABLE CHANGE_TRACKING;';
 EOF
   done
   if [ -s $CFG_DIR/enable_change_tracking.sql ]; then 
@@ -889,21 +923,44 @@ EOF
 
   # disable tracking on regular_tables
   list_regular_tables | while read tablename; do  
+    if [ -n "${SRCDB_SCHEMA}" ]; then 
+      fq_table_name="${SRCDB_SCHEMA}.${tablename}"
+    else 
+      fq_table_name="${SRCDB_SCHEMA}"
+    fi
 cat >>$CFG_DIR/disable_change_tracking.sql <<EOF
 IF EXISTS (select t.name 
     from sys.change_tracking_tables i
     left join sys.tables t
-    on i.object_id = t.object_id where t.name='${tablename}')
+    left join sys.schemas s on t.schema_id = s.schema_id
+    on i.object_id = t.object_id 
+    where t.name='${tablename}' and s.name='${SRCDB_SCHEMA}')
   begin
-    select 'ALTER TABLE ${tablename} DISABLE CHANGE_TRACKING';
-    ALTER TABLE ${tablename} DISABLE CHANGE_TRACKING;
+    select 'ALTER TABLE ${fq_table_name} DISABLE CHANGE_TRACKING';
+    ALTER TABLE ${fq_table_name} DISABLE CHANGE_TRACKING;
   end
 else
-    select 'skip ALTER TABLE ${tablename} DISABLE CHANGE_TRACKING';
+    select 'skip ALTER TABLE ${fq_table_name} DISABLE CHANGE_TRACKING';
 EOF
   done
   if [ -s $CFG_DIR/disable_change_tracking.sql ]; then 
     cat $CFG_DIR/disable_change_tracking.sql | sql_cli
+  fi
+
+  # see if there are other tables with table tracking on
+  cat >$CFG_DIR/change_tracking_still_enabled.sql <<EOF
+  select schema_name(schema_id), t.name 
+    from sys.change_tracking_tables i
+    left join sys.tables t
+    on i.object_id = t.object_id;
+EOF
+  pending_tables=$(cat $CFG_DIR/change_tracking_still_enabled.sql | sql_cli)
+  if [ -n "$pending_tables" ]; then
+    echo "following tables still have change trakcing enabled and change tracking can't be disabled"
+    echo "$pending_tables" | while read line; do 
+      readarray -d ',' -t table_stat_array < <(echo -n "$line")
+      echo "ALTER TABLE ${table_stat_array[0]}.${table_stat_array[1]} DISABLE CHANGE_TRACKING;"
+    done
   fi
 
   # disable change tracking on database ${SRCDB_DB} 
@@ -976,9 +1033,17 @@ start_ycsb() {
     local field_count
     convert_table_stat_to_var "${tablestat}"
 
-    if [[ "${table_name,,}" =~ "dense" ]]; then tabletype="dense"; else tabletype="sparse";fi
+    if [[ "${table_name,,}" =~ "dense" ]]; then tabletype="dense"
+    elif [[ "${table_name,,}" =~ "sparse" ]]; then tabletype="dense"; 
+    else 
+      echo "skipping $table_name"
+      continue
+    fi
+
     if [ -z "${record_count}" ] || [ "${record_count}" = "[NULL]" ]; then echo "record_count not defined.  run list_table_counts or load data"; return 1; fi
     if [ -z "${field_count}"  ] || [ "${field_count}"  = "[NULL]" ]; then echo "field_count not defined.  run list_table_counts"; return 1; fi
+
+    if [ -n "${SRCDB_SCHEMA}" ]; then table_name="${SRCDB_SCHEMA}.${table_name}"; fi
 
     # ratios of delte, update, insert
     local _y_fieldlength=$(var_name "fieldlength" "$tabletype")
@@ -1021,9 +1086,9 @@ start_ycsb() {
     # JAVA_HOME=$( find /usr/lib/jvm/java-8-openjdk-* -maxdepth 0 ) \
     CLASSPATH=$SRCDB_CLASSPATH \
     JAVA_OPTS="-XX:MinRAMPercentage=${y_MinRAMPercentage:-1.0} -XX:MaxRAMPercentage=${y_MaxRAMPercentage:-1.0}" \
-    bin/ycsb.sh run jdbc -s -P workloads/workloada -p table=${table_name} \
-    -p db.driver=$SRCDB_JDBC_DRIVER \
-    -p db.url=$SRCDB_JDBC_URL \
+    bin/ycsb.sh run jdbc -s -P workloads/workloada -p table="${table_name}" \
+    -p db.driver="$SRCDB_JDBC_DRIVER" \
+    -p db.url="$SRCDB_JDBC_URL" \
     -p db.user="$SRCDB_ARC_USER" \
     -p db.passwd="$SRCDB_ARC_PW" \
     -p db.urlsharddelim='___' \
@@ -1034,23 +1099,23 @@ start_ycsb() {
     -p jdbc.ycsbkeyprefix=false \
     -p insertorder=ordered \
     -p readproportion=0 \
-    -p deleteproportion=${y_del_proportion:-0} \
-    -p deletestart=${deletestart} \
-    -p deletecount=${deletecount} \
-    -p updateproportion=${y_upd_proportion:-1} \
-    -p insertstart=${updatestart} \
-    -p insertcount=${updatecount} \
-    -p insertproportion=${y_ins_proportion:-0} \
-    -p recordcount=${insertstart} \
-    -p fieldcount=${field_count:-10} \
-    -p fieldlength=${!_y_fieldlength:-100} \
-    -p jdbc.prependtimestamp=${y_prependtimestamp} \
-    -p dataintegrity=${y_dataintegrity} \
-    -p jdbc.multiupdatesize=${!_y_multiupdatesize:-1} \
-    -p jdbc.multideletesize=${!_y_multideletesize:-1} \
-    -p jdbc.multiinsertsize=${!_y_multiinsertsize:-1} \
-    -threads ${y_threads:-1} \
-    -target ${y_tps:-1} "${@}" >$YCSB_LOG_DIR/ycsb.$table_name.log 2>&1 &
+    -p deleteproportion="${y_del_proportion:-0}" \
+    -p deletestart="${deletestart}" \
+    -p deletecount="${deletecount}" \
+    -p updateproportion="${y_upd_proportion:-1}" \
+    -p insertstart="${updatestart}" \
+    -p insertcount="${updatecount}" \
+    -p insertproportion="${y_ins_proportion:-0}" \
+    -p recordcount="${insertstart}" \
+    -p fieldcount="${field_count:-10}" \
+    -p fieldlength="${!_y_fieldlength:-100}" \
+    -p jdbc.prependtimestamp="${y_prependtimestamp}" \
+    -p dataintegrity="${y_dataintegrity}" \
+    -p jdbc.multiupdatesize="${!_y_multiupdatesize:-1}" \
+    -p jdbc.multideletesize="${!_y_multideletesize:-1}" \
+    -p jdbc.multiinsertsize="${!_y_multiinsertsize:-1}" \
+    -threads "${y_threads:-1}" \
+    -target "${y_tps:-1}" "${@}" >$YCSB_LOG_DIR/ycsb.$table_name.log 2>&1 &
     
     done
 

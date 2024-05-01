@@ -297,11 +297,11 @@ def calc_count_s_ycsb(metrics, start_time, end_time):
         except:
             pass
 
-def get_arcion_metrics():
+def get_arcion_metrics(params:dict):
     arc_stats=parse_arcion_stats(
-        run_id=arcion_run_id,
-        user_id=src_username.value,
-        db_type=src_db_type.value,
+        run_id=params[arcion_run_id,
+        user_id=params[src_username.value,
+        db_type=params[src_db_type.value,
         arcion_stats_csv_positions=arcion_stats_csv_positions)
     return(arc_stats)
 
@@ -372,7 +372,7 @@ def start_mlflow(max_intervals=0,experiment_id=None, log_interval_sec=10, all_pa
         mlflow.log_metrics(metrics=get_prom_metrics(prom_metric_url="http://localhost:9399/metrics"),step=step)
         mlflow.log_metrics(metrics=get_prom_metrics(prom_metric_url="http://localhost:9100/metrics"),step=step)
         mlflow.log_metrics(metrics=get_ycsb_metrics(),step=step)
-        mlflow.log_metrics(metrics=get_arcion_metrics(),step=step)
+        mlflow.log_metrics(metrics=get_arcion_metrics(all_params=all_params),step=step)
         time.sleep(log_interval_sec)
         wait_count += 1
         step += 1
@@ -382,8 +382,8 @@ def start_mlflow(max_intervals=0,experiment_id=None, log_interval_sec=10, all_pa
     # experiment done
     mlflow.end_run()
 
-def register_mlflow(exp_params):
-    mlflow_proc = Process(target=start_mlflow, kwargs={"experiment_id":experiment_id, "all_params":current_exp_params})
+def register_mlflow(mlflow_proc_state, exp_params, experiment_id):
+    mlflow_proc = Process(target=start_mlflow, kwargs={"experiment_id":experiment_id, "all_params":exp_params})
     mlflow_proc.start()   
     try:
         mlflow_proc_state['proc'].terminate()
