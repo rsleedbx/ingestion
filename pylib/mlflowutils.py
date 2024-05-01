@@ -24,8 +24,7 @@ import datetime
 
 ycsb_date_time_pattern = r"^(?P<dt>[0-9\-]+ [0-9\:]+)"  # at the beginning
 ycsb_op_val_pattern = r'\[([^]]*)\]'                    # [Update: ] [Insert: ] ...
-
-
+arcion_stats_csv_positions={}
 
 def tablulate_arc_stat_line(count, stat_type, cat_sch_tbl, arc_stats, replicant_lag, total_lag, replicant_lag_weights, total_lag_weights):
     if count > 0:
@@ -299,9 +298,9 @@ def calc_count_s_ycsb(metrics, start_time, end_time):
 
 def get_arcion_metrics(params:dict):
     arc_stats=parse_arcion_stats(
-        run_id=params[arcion_run_id,
-        user_id=params[src_username.value,
-        db_type=params[src_db_type.value,
+        run_id=params["arcion_run_id"],
+        user_id=params["src_username"],
+        db_type=params["src_db_type"],
         arcion_stats_csv_positions=arcion_stats_csv_positions)
     return(arc_stats)
 

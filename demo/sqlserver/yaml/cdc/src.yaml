@@ -3,7 +3,7 @@ host: '${SRCDB_HOST}'
 port: ${SRCDB_PORT}
 username: '${SRCDB_ARC_USER}'
 password: '${SRCDB_ARC_PW}'
-database: '${SRCDB_ARC_USER}'
+database: '${SRCDB_DB}'
 max-connections: 5
 max-retries: 1
 extractor: CDC # {CHANGE|CDC|LOG}

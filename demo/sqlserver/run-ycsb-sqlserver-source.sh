@@ -252,7 +252,7 @@ load_dense_data() {
         # -u trust certifcate
 	set -x
 
-	bcp "$table_name" in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d "${SRCDB_ARC_USER}" -f "${LOG_DIR}/03_${y_tabletype}table.fmt" -b "${progress_interval_rows}" | tee ${LOG_DIR}/03_${y_tabletype}table.log
+	bcp "$table_name" in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d "${SRCDB_DB}" -f "${LOG_DIR}/03_${y_tabletype}table.fmt" -b "${progress_interval_rows}" | tee ${LOG_DIR}/03_${y_tabletype}table.log
         set +x
         echo "bcp log at ${LOG_DIR}/03_${y_tabletype}table.log"
 
@@ -368,7 +368,7 @@ load_dense_data2() {
         # batch of 1M
         # -u trust certifcate
 	set -x
-	bcp "YCSB${y_tabletype^^}${TABLE_INST_NAME}" in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d "${SRCDB_ARC_USER}" -f "${LOG_DIR}/03_${y_tabletype}table.fmt" -b "${progress_interval_rows}" | tee ${LOG_DIR}/03_${y_tabletype}table.log
+	bcp "YCSB${y_tabletype^^}${TABLE_INST_NAME}" in "$datafile" -S "$SRCDB_HOST,$SRCDB_PORT" -U "${SRCDB_ARC_USER}" -P "${SRCDB_ARC_PW}" -u -d "${SRCDB_DB}" -f "${LOG_DIR}/03_${y_tabletype}table.fmt" -b "${progress_interval_rows}" | tee ${LOG_DIR}/03_${y_tabletype}table.log
         set +x
         echo "bcp log at ${LOG_DIR}/03_${y_tabletype}table.log"
 
@@ -677,7 +677,7 @@ FROM information_schema.tables
 where 
 table_type in ('BASE TABLE') 
 and table_schema like '${SRCDB_SCHEMA:-%}' 
-and table_catalog like '${SRCDB_ARC_USER:-%}' 
+and table_catalog like '${SRCDB_DB:-%}' 
 order by table_name
 go
 EOF
