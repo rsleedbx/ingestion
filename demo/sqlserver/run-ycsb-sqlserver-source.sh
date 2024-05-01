@@ -1266,6 +1266,13 @@ start_arcion() {
       METADATA="--metadata ${ARCION_CFG_DIR}/metadata.yaml"; 
   #fi
 
+  # storage
+  local STORAGE=""
+  if [[ "${DSTDB_TYPE,,}" = 'unitycatalog' ]]; then 
+      heredoc_file ${a_yamldir}/storage.yaml >${ARCION_CFG_DIR}/storage.yaml  
+      STORAGE="--streaming-storage ${ARCION_CFG_DIR}/storage.yaml"; 
+  fi
+
   # run arcion
   set -x 
   cd $ARCION_CFG_DIR; JAVA_HOME="$ARCION_JAVA_HOME" \
@@ -1279,8 +1286,7 @@ start_arcion() {
     --extractor  ${ARCION_CFG_DIR}/extractor.yaml \
     --filter     ${ARCION_CFG_DIR}/filter.yaml \
     --statistics ${ARCION_CFG_DIR}/statistics.yaml \
-    $MAPPER $METADATA\
-    --overwrite --id $NINE_CHAR_ID $WRITE_MODE >${ARCION_CFG_DIR}/arcion.log 2>&1 &
+    $STORAGE $MAPPER $METADATA --overwrite --id $NINE_CHAR_ID $WRITE_MODE >${ARCION_CFG_DIR}/arcion.log 2>&1 &
     set +x
 
   ARCION_PID=$!

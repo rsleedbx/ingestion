@@ -1,0 +1,7 @@
+encrypted: false
+token: '${DBX_ACCESS_TOKEN}'
+dbApiBaseUrl": "https://e2-dogfood.staging.cloud.databricks.com"
+catalogName: "main"
+schemaName: "${STAGE_SCHEMA}"
+volumeName: "${NINE_CHAR_ID}"  
+type: "UC_VOLUME_STORAGE_BROKER"
