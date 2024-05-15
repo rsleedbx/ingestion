@@ -205,5 +205,3 @@ EOF
 else
     echo "sqlserver already started" 
 fi
-
-PATH=
