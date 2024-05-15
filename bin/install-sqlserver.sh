@@ -58,8 +58,8 @@ sql_root_cli() {
     local DB_DB=${DB_DB:-master}
     local DB_HOST=${DB_HOST:-localhost}
     local DB_PORT=${DB_PORT:-1433}
-    local DB_ARC_USER=${DB_ARC_USER:-sa}
-    local DB_ARC_PW=${DB_ARC_PW:-Passw0rd}
+    local DB_ROOT_USER=${DB_ARC_USER:-sa}
+    local DB_ROOT_USER=${DB_ARC_PW:-Passw0rd}
     
   if [ -z "$(command -v sqlcmd)" ]; then export PATH=/opt/mssql-tools18/bin:$PATH; fi
   # when stdin is redirected
@@ -206,3 +206,4 @@ else
     echo "sqlserver already started" 
 fi
 
+PATH=
