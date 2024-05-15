@@ -31,6 +31,105 @@ stop_sqlserver() {
     fi    
 }
 
+sql_cli() {
+    local DB_DB=${DB_DB:-arcsrc}
+    local DB_HOST=${DB_HOST:-localhost}
+    local DB_PORT=${DB_PORT:-1433}
+    local DB_ARC_USER=${DB_ARC_USER:-arcsrc}
+    local DB_ARC_PW=${DB_ARC_PW:-Passw0rd}
+
+  if [ -z "$(command -v sqlcmd)" ]; then export PATH=/opt/mssql-tools18/bin:$PATH; fi
+  # when stdin is redirected
+  # -I enable quite identified
+  # -h-1 remove header and -----
+  # -W remove trailing spaces
+  # -s ","
+  # -w width of the screen
+  if [ ! -t 0 ]; then
+    local sql_cli_batch_mode="-h-1 -W -s , -w 1024"
+    cat <(printf "set NOCOUNT ON;\ngo\n") - | \
+    sqlcmd -I -d "$DB_DB" -S "$DB_HOST,$DB_PORT" -U "${DB_ARC_USER}" -P "${DB_ARC_PW}" -C $sql_cli_batch_mode "$@"
+  else
+    sqlcmd -I -d "$DB_DB" -S "$DB_HOST,$DB_PORT" -U "${DB_ARC_USER}" -P "${DB_ARC_PW}" -C $sql_cli_batch_mode "$@"
+  fi
+}
+
+sql_root_cli() {
+    local DB_DB=${DB_DB:-master}
+    local DB_HOST=${DB_HOST:-localhost}
+    local DB_PORT=${DB_PORT:-1433}
+    local DB_ARC_USER=${DB_ARC_USER:-sa}
+    local DB_ARC_PW=${DB_ARC_PW:-Passw0rd}
+    
+  if [ -z "$(command -v sqlcmd)" ]; then export PATH=/opt/mssql-tools18/bin:$PATH; fi
+  # when stdin is redirected
+  # -I enable quite identified
+  # -h-1 remove header and -----
+  # -W remove trailing spaces
+  # -s ","
+  # -w width of the screen
+  if [ ! -t 0 ]; then
+    local sql_cli_batch_mode="-h-1 -W -s , -w 1024"
+    cat <(printf "set NOCOUNT ON;\ngo\n") - | \
+    sqlcmd -I -S "$DB_HOST,$DB_PORT" -U "${DB_ROOT_USER}" -P "${DB_ROOT_PW}" -C $sql_cli_batch_mode "$@"
+  else
+    sqlcmd -I -S "$DB_HOST,$DB_PORT" -U "${DB_ROOT_USER}" -P "${DB_ROOT_PW}" -C $sql_cli_batch_mode "$@"
+  fi
+}
+
+add_user() {
+    local DB_DB=${DB_DB:-arcsrc}
+    local DB_HOST=${DB_HOST:-localhost}
+    local DB_PORT=${DB_PORT:-1433}
+    local DB_ARC_USER=${DB_ARC_USER:-arcsrc}
+    local DB_ARC_PW=${DB_ARC_PW:-Passw0rd}
+    cat <<EOF | sql_root_cli
+CREATE LOGIN ${DB_ARC_USER} WITH PASSWORD = '${DB_ARC_PW}'
+go
+
+create database ${DB_DB}
+go
+
+use ${DB_DB}
+go
+
+CREATE USER ${DB_ARC_USER} FOR LOGIN ${DB_ARC_USER} WITH DEFAULT_SCHEMA=dbo
+go
+
+ALTER ROLE db_owner ADD MEMBER ${DB_ARC_USER}
+go
+
+ALTER ROLE db_ddladmin ADD MEMBER ${DB_ARC_USER}
+go
+
+alter user ${DB_ARC_USER} with default_schema=dbo
+go
+
+ALTER LOGIN ${DB_ARC_USER} WITH DEFAULT_DATABASE=[${DB_DB}]
+go
+EOF
+}
+
+# wait for db to be up
+ping_sql_cli() {
+  local -i max_wait=${1:-10}
+  local -i count=0
+  local -i rc=1
+  while (( (rc != 0) && (count < max_wait) )); do
+    echo "select 1;" | sql_root_cli > /dev/null
+    rc=${PIPESTATUS[1]}
+    if (( rc == 0 )); then 
+      break
+    else
+      count=$(( count + 1 ))
+      echo "$count: waiting for db"
+      sleep 1
+    fi 
+  done
+  return $rc
+}
+
+
 # install 
 #  https://learn.microsoft.com/en-us/sql/linux/quickstart-install-connect-ubuntu?view=sql-server-ver16&tabs=ubuntu2004
 # setup 
